@@ -43,3 +43,23 @@ def test_parse_answer_dispatch():
     assert parse_answer("Positive", cls) == "positive"
     assert parse_answer("7", TaskConfig(type="regress", label_column="y")) == 7.0
     assert parse_answer("Rome", TaskConfig(type="extract_exact", label_column="y")) == "Rome"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not positive",
+        "non-positive",
+        "I don't think it's negative",
+        "never neutral",
+        # Ambiguous: two labels matched, so the fallback returns None (conservative rule).
+        "positive, not negative",
+    ],
+)
+def test_parse_label_negation_returns_none(text):
+    assert parse_label(text, LABELS) is None
+
+
+def test_parse_label_negation_does_not_affect_exact_match():
+    assert parse_label("positive", LABELS) == "positive"
+    assert parse_label('{"label": "negative"}', LABELS) == "negative"

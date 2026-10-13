@@ -8,6 +8,7 @@ from .textnorm import normalize
 
 _NUM = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 _JSON_KEYS = ("label", "answer", "class", "prediction")
+_NEGATORS = {"not", "no", "non", "never", "neither", "nor"}
 
 
 def parse_label(text: str, labels: list[str]) -> str | None:
@@ -28,12 +29,26 @@ def parse_label(text: str, labels: list[str]) -> str | None:
             v = obj.get(key)
             if v is not None and normalize(v) in by_norm:
                 return by_norm[normalize(v)]
-    found = {
-        label
-        for n, label in by_norm.items()
-        if re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", t)
-    }
-    return found.pop() if len(found) == 1 else None
+    hits: dict[str, list[int]] = {}
+    for n, label in by_norm.items():
+        for m in re.finditer(rf"(?<!\w){re.escape(n)}(?!\w)", t):
+            hits.setdefault(label, []).append(m.start())
+    if len(hits) != 1:
+        return None
+    ((label, starts),) = hits.items()
+    if any(_negated(t, s) for s in starts):
+        return None
+    return label
+
+
+def _negated(t: str, start: int) -> bool:
+    """True if the match at `start` is negated: prefixed by non-/un-/anti-, or
+    preceded within 3 tokens by a negator (not, no, never, ..., or an n't form)."""
+    prefix = t[:start]
+    if re.search(r"(?:non|un|anti)-$", prefix):
+        return True
+    window = re.findall(r"\w+(?:['’]\w+)?", prefix)[-3:]
+    return any(w in _NEGATORS or w.replace("’", "'").endswith("n't") for w in window)
 
 
 def parse_number(text: str) -> float | None:
