@@ -3,7 +3,7 @@ import pytest
 
 from tiebreak.metrics import accuracy
 from tiebreak.stats import (
-    equivalent_set, extra_examples_needed, holm, mcnemar_exact, paired_bootstrap, upper_loss,
+    equivalent_set, extra_examples_needed, guard_p, holm, mcnemar_exact, paired_bootstrap, upper_loss,
 )
 
 
@@ -33,7 +33,7 @@ def test_clearly_worse_candidate_is_not_equivalent():
 
 
 def test_identical_predictions_are_equivalent_and_do_not_crash():
-    y = np.array([0, 1, 2, 0, 1, 2] * 20)
+    y = np.array([0, 1, 2, 0, 1, 2] * 100)
     p = y.copy()
     boot = paired_bootstrap(y, {"a": p, "b": p.copy()}, accuracy, n_boot=300)
     assert equivalent_set(boot, margin=0.02) == {"a": True, "b": True}
@@ -67,3 +67,31 @@ def test_extra_examples_needed():
 def test_too_few_examples_rejected():
     with pytest.raises(ValueError):
         paired_bootstrap(np.array([1]), {"a": np.array([1])}, accuracy)
+
+
+def test_identical_predictions_are_not_tied_on_tiny_data():
+    y = np.array([0, 1, 2, 0, 1] * 4)  # n=20
+    boot = paired_bootstrap(y, {"a": y, "b": y.copy()}, accuracy, n_boot=300)
+    assert equivalent_set(boot, margin=0.02) == {"a": True, "b": False}
+    assert equivalent_set(boot, margin=0.02, guard=False) == {"a": True, "b": True}
+
+
+def test_guard_p_shrinks_with_more_data_and_flags_real_gaps():
+    def p(n):
+        y = np.zeros(n, dtype=int)
+        return guard_p(y, y, y, 0.02)
+    assert p(600) < p(100) < p(20)
+    y = np.zeros(300, dtype=int)
+    bad = y.copy()
+    bad[:90] = 1
+    assert guard_p(y, y, bad, 0.02) > 0.99
+
+
+def test_guard_false_reproduces_plain_bootstrap_p_values():
+    rng = np.random.default_rng(1)
+    y = rng.integers(0, 3, 300)
+    preds = {"good": preds_with_accuracy(y, 0.95, rng), "ok": preds_with_accuracy(y, 0.93, rng)}
+    boot = paired_bootstrap(y, preds, accuracy, n_boot=500)
+    j = boot.names.index("ok" if boot.best == "good" else "good")
+    p = (1 + int(np.sum(boot.loss[:, j] > 0.02))) / (500 + 1)
+    assert equivalent_set(boot, 0.02, guard=False)[boot.names[j]] == (p <= 0.05)

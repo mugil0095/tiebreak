@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .stats import BootstrapResult, extra_examples_needed, upper_loss
@@ -23,18 +24,27 @@ def recommend(
     margin: float,
 ) -> Recommendation:
     best = boot.best
+    k = len(boot.names)
+    q = 1 - 0.05 / max(k - 1, 1)  # same Holm-style adjustment as the equivalence test
+
+    def cost(m: str) -> float:
+        v = objective.get(m)
+        return math.inf if v is None or math.isnan(v) else float(v)
+
+    unknown = [m for m in boot.names if math.isinf(cost(m))]
     members = [m for m in boot.names if equiv[m]]
-    winner = min(members, key=lambda m: (objective[m], m != best, m))
+    winner = min(members, key=lambda m: (cost(m), -boot.point[m], m))
 
     inconclusive: list[str] = []
     extra: dict[str, int | None] = {}
     for m in boot.names:
-        if equiv[m] or objective[m] >= objective[winner]:
+        if equiv[m] or cost(m) >= cost(winner):
             continue
         point_loss = boot.point[best] - boot.point[m]
         if point_loss <= margin:
             inconclusive.append(m)
-            extra[m] = extra_examples_needed(boot.n, point_loss, upper_loss(boot, m), margin)
+            need = extra_examples_needed(boot.n, point_loss, upper_loss(boot, m, q), margin)
+            extra[m] = None if need is None else max(need, 1)
 
     if winner == best:
         base = f"{winner} has the highest score and no cheaper candidate is confirmed within {margin:g} of it."
@@ -43,11 +53,17 @@ def recommend(
             f"{winner} is confirmed within {margin:g} of the best ({best}) and is the cheapest "
             f"candidate that is."
         )
+    if unknown:
+        base += f" No usable cost for {', '.join(unknown)}; treated as most expensive."
     if inconclusive:
         hints = []
         for m in inconclusive:
             need = extra[m]
-            hints.append(f"{m} (about {need} more labelled examples)" if need else f"{m} (margin too tight for this data)")
+            hints.append(
+                f"{m} (approximately {need} more labelled examples)"
+                if need is not None
+                else f"{m} (margin too tight for this data)"
+            )
         base += " The data cannot separate these cheaper candidates from the best: " + ", ".join(hints) + "."
     return Recommendation(
         status="inconclusive" if inconclusive else "recommended",

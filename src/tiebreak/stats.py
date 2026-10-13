@@ -8,6 +8,9 @@ import numpy as np
 from scipy.stats import binomtest
 
 
+GUARD_PRIOR = 2.0  # Dirichlet pseudo-count per cell; chosen by the false-tie experiment (0.5 gave 11% at n=100)
+
+
 @dataclass
 class BootstrapResult:
     names: list[str]
@@ -17,6 +20,8 @@ class BootstrapResult:
     ci: dict[str, tuple[float, float]]
     loss: np.ndarray  # (n_boot, k): resample-best score minus candidate score
     best: str
+    y: np.ndarray | None = None  # encoded labels, kept for the discordance guard
+    preds: dict[str, np.ndarray] | None = None
 
 
 def paired_bootstrap(
@@ -50,7 +55,7 @@ def paired_bootstrap(
         for j, m in enumerate(names)
     }
     best = max(names, key=lambda m: point[m])
-    return BootstrapResult(names, n, n_boot, point, ci, loss, best)
+    return BootstrapResult(names, n, n_boot, point, ci, loss, best, np.asarray(y), {m: np.asarray(preds[m]) for m in names})
 
 
 def holm(pvals, alpha: float = 0.05) -> list[bool]:
@@ -64,15 +69,59 @@ def holm(pvals, alpha: float = 0.05) -> list[bool]:
     return reject
 
 
-def equivalent_set(boot: BootstrapResult, margin: float, alpha: float = 0.05) -> dict[str, bool]:
+def guard_p(
+    y: np.ndarray,
+    best_pred: np.ndarray,
+    cand_pred: np.ndarray,
+    margin: float,
+    n_draws: int = 20_000,
+    prior: float | None = None,
+    seed: int = 0,
+) -> float:
+    """Bayesian discordance guard: P(loss > margin) for a classification candidate.
+
+    The paired bootstrap only resamples observed discordant pairs, so it has no
+    variance when two candidates rarely disagree. Here b = #(best right, cand wrong),
+    c = #(best wrong, cand right), e = the rest; (p_b, p_c, p_e) ~ Dirichlet(b+k, c+k, e+k), k = GUARD_PRIOR
+    and loss = p_b - p_c. Returns (1 + #(loss > margin)) / (n_draws + 1).
+    """
+    y = np.asarray(y)
+    a = np.asarray(best_pred) == y
+    c_ok = np.asarray(cand_pred) == y
+    n = len(y)
+    b = int(np.sum(a & ~c_ok))
+    c = int(np.sum(~a & c_ok))
+    e = n - b - c
+    rng = np.random.default_rng(seed)
+    prior = GUARD_PRIOR if prior is None else prior
+    d = rng.dirichlet([b + prior, c + prior, e + prior], size=n_draws)
+    loss = d[:, 0] - d[:, 1]
+    return (1 + int(np.sum(loss > margin))) / (n_draws + 1)
+
+
+def equivalent_set(
+    boot: BootstrapResult, margin: float, alpha: float = 0.05, guard: bool = True
+) -> dict[str, bool]:
     """A candidate is equivalent to the best when, with Holm-adjusted confidence,
-    its loss relative to the best is no more than `margin`."""
+    its loss relative to the best is no more than `margin`.
+
+    guard=True (classification metrics) takes p = max(p_bootstrap, p_guard) so that
+    candidates which almost never disagree with the best are not tied by default.
+    guard=False uses the bootstrap alone: use it for regression metrics, with the
+    limitation that near-identical predictions then have no resampling variance and
+    are declared equivalent regardless of sample size.
+    """
     out = {boot.best: True}
     others = [j for j, m in enumerate(boot.names) if m != boot.best]
     if not others:
         return out
     B = boot.loss.shape[0]
     pvals = [(1 + int(np.sum(boot.loss[:, j] > margin))) / (B + 1) for j in others]
+    if guard and boot.y is not None and boot.preds is not None:
+        pvals = [
+            max(p, guard_p(boot.y, boot.preds[boot.best], boot.preds[boot.names[j]], margin))
+            for p, j in zip(pvals, others)
+        ]
     for j, rej in zip(others, holm(pvals, alpha)):
         out[boot.names[j]] = bool(rej)
     return out
