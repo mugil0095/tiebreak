@@ -69,3 +69,46 @@ def test_take_and_concat(tmp_path):
     both = concat(sub, ds.take([1]))
     assert len(both) == 3 and both.text == ["ok", "hi", "yo"]
     assert concat(sub, None) is sub
+
+
+def test_label_none_is_a_real_label_not_missing(tmp_path):
+    task = TaskConfig(type="classify", label_column="s", text_column="t", labels=["None", "b"])
+    ds = load_dataset(write(tmp_path, "t,s\nhi,None\nyo,b\n"), task)
+    assert list(ds.y) == ["None", "b"]
+
+
+def test_text_na_is_accepted(tmp_path):
+    ds = load_dataset(write(tmp_path, "t,s\nN/A,a\nnull,b\n"), TASK)
+    assert ds.text == ["N/A", "null"]
+
+
+def test_id_leading_zeros_preserved_and_distinct_from_seven(tmp_path):
+    ds = load_dataset(write(tmp_path, "id,t,s\n007,hi,a\n7,yo,b\n"), TASK)
+    assert ds.ids == ["007", "7"]
+
+
+def test_blank_id_rejected(tmp_path):
+    with pytest.raises(DataError, match=r"blank id.*\[1\]"):
+        load_dataset(write(tmp_path, "id,t,s\n,hi,a\nx2,yo,b\n"), TASK)
+
+
+def test_duplicate_id_message_names_the_id(tmp_path):
+    with pytest.raises(DataError, match=r"duplicate.*'x'"):
+        load_dataset(write(tmp_path, "id,t,s\nx,hi,a\nx,yo,b\n"), TASK)
+
+
+def test_empty_file_gives_data_error(tmp_path):
+    with pytest.raises(DataError, match="could not read d.csv"):
+        load_dataset(write(tmp_path, ""), TASK)
+
+
+def test_garbled_jsonl_gives_data_error(tmp_path):
+    task = TaskConfig(type="regress", label_column="v")
+    with pytest.raises(DataError, match="could not read d.jsonl"):
+        load_dataset(write(tmp_path, "not json at all\n", "d.jsonl"), task)
+
+
+def test_inf_regression_label_rejected(tmp_path):
+    task = TaskConfig(type="regress", label_column="v")
+    with pytest.raises(DataError, match="non-finite"):
+        load_dataset(write(tmp_path, "t,v\nhi,inf\nyo,2\n"), task)

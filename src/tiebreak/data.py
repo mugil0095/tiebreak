@@ -49,12 +49,18 @@ def concat(a: Dataset, b: Dataset | None) -> Dataset:
 def load_dataset(path, task: TaskConfig) -> Dataset:
     path = Path(path)
     suffix = path.suffix.lower()
-    if suffix == ".csv":
-        df = pd.read_csv(path, encoding="utf-8-sig")
-    elif suffix in (".jsonl", ".ndjson"):
-        df = pd.read_json(path, lines=True, dtype=False)
-    else:
+    if suffix not in (".csv", ".jsonl", ".ndjson"):
         raise DataError(f"unsupported file type '{suffix}'; use .csv or .jsonl")
+    try:
+        if suffix == ".csv":
+            # Read everything as text so "None", "NA", "007" survive; only truly blank cells are NaN.
+            df = pd.read_csv(
+                path, encoding="utf-8-sig", dtype=str, keep_default_na=False, na_values=[""]
+            )
+        else:
+            df = pd.read_json(path, lines=True, dtype=False)
+    except (OSError, ValueError) as e:  # EmptyDataError, ParserError, bad JSON, bad encoding are ValueErrors
+        raise DataError(f"could not read {path.name}: {e}") from e
 
     lc, tc = task.label_column, task.text_column
     if lc not in df.columns:
@@ -71,13 +77,21 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
     if tc:
         empty = df.index[df[tc].isna() | (df[tc].astype(str).str.strip() == "")].tolist()
         if empty:
-            raise DataError(f"{len(empty)} rows have empty text (first rows: {[i + 1 for i in empty[:5]]})")
+            raise DataError(
+                f"{len(empty)} rows have empty text (first data rows, 1-based: {[i + 1 for i in empty[:5]]})"
+            )
         text = df[tc].astype(str).tolist()
 
     if "id" in df.columns:
+        blank = df.index[df["id"].isna() | (df["id"].astype(str).str.strip() == "")].tolist()
+        if blank:
+            rows = [i + 1 for i in blank[:5]]
+            raise DataError(f"{len(blank)} rows have a blank id (first data rows, 1-based: {rows})")
         ids = df["id"].astype(str).tolist()
-        if len(set(ids)) != len(ids):
-            raise DataError("duplicate values in the 'id' column")
+        seen = pd.Series(ids)
+        dups = list(dict.fromkeys(seen[seen.duplicated()]))
+        if dups:
+            raise DataError(f"duplicate values in the 'id' column, e.g. {dups[:5]}")
     else:
         ids = [f"row-{i}" for i in range(len(df))]
 
@@ -86,6 +100,13 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
             y = pd.to_numeric(df[lc], errors="raise").to_numpy(dtype=float)
         except (ValueError, TypeError) as e:
             raise DataError(f"label column '{lc}' has non-numeric values: {e}") from e
+        bad = np.flatnonzero(~np.isfinite(y))
+        if bad.size:
+            rows = [int(i) + 1 for i in bad[:5]]
+            raise DataError(
+                f"label column '{lc}' has {bad.size} non-finite values (inf, -inf or nan); "
+                f"first data rows, 1-based: {rows}"
+            )
     else:
         y = df[lc].astype(str).str.strip().to_numpy(dtype=object)
         if task.type in ("classify", "binary"):
