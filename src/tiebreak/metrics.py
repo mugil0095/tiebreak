@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
+import pandas as pd
 
 from .config import TaskConfig
 from .textnorm import normalize
@@ -57,32 +58,48 @@ def get_metric(name: str) -> Metric:
     return METRICS[name]
 
 
+def _missing(v) -> bool:
+    """True for None, NaN (any float type) and pandas NA."""
+    if v is None:
+        return True
+    try:
+        return bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False
+
+
 def encode_labels(task: TaskConfig, y, preds_by_name: dict):
     """Return (y_enc, {name: enc}) ready for the metric functions.
 
     Classification: int64 codes, -1 for invalid or missing predictions.
     Regression: floats; missing predictions are replaced by the mean of y.
+    Classification raises ValueError if a gold label is not in task.labels.
     """
     if task.type == "regress":
         yf = np.asarray(y, dtype=float)
         fill = float(yf.mean())
 
         def enc_r(values):
-            out = []
-            for v in values:
-                bad = v is None or (isinstance(v, float) and np.isnan(v))
-                out.append(fill if bad else float(v))
+            out = [fill if _missing(v) else float(v) for v in values]
             return np.array(out, dtype=float)
 
         return yf, {n: enc_r(p) for n, p in preds_by_name.items()}
 
     norm = normalize if task.type == "extract_exact" else str
-    labels = task.labels or sorted({norm(v) for v in y})
+    labels = task.labels or sorted({norm(v) for v in y if not _missing(v)})
     vocab = {norm(label): i for i, label in enumerate(labels)}
+
+    unknown, seen = [], set()
+    for v in y:
+        if (_missing(v) or norm(v) not in vocab) and repr(v) not in seen:
+            seen.add(repr(v))
+            unknown.append(v)
+    if unknown:
+        raise ValueError(f"gold labels not in task.labels: {unknown[:5]}")
 
     def enc(values):
         return np.array(
-            [-1 if v is None else vocab.get(norm(v), -1) for v in values], dtype=np.int64
+            [-1 if _missing(v) else vocab.get(norm(v), -1) for v in values], dtype=np.int64
         )
 
     return enc(y), {n: enc(p) for n, p in preds_by_name.items()}

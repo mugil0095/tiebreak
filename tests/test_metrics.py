@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.metrics import f1_score
 
@@ -59,3 +60,32 @@ def test_encode_regression_fills_missing_with_mean():
     task = TaskConfig(type="regress", label_column="y")
     y, enc = encode_labels(task, np.array([1.0, 3.0]), {"m": [2.0, None]})
     assert list(enc["m"]) == [2.0, 2.0]
+
+
+def test_unknown_gold_label_raises():
+    task = TaskConfig(type="classify", label_column="y", labels=["a", "b"])
+    with pytest.raises(ValueError, match=r"gold labels not in task.labels: \['c'\]"):
+        encode_labels(task, np.array(["a", "c"], dtype=object), {"m": ["a", "b"]})
+
+
+def test_unknown_gold_message_lists_at_most_five():
+    task = TaskConfig(type="classify", label_column="y", labels=["a", "b"])
+    y = np.array(["x1", "x2", "x3", "x4", "x5", "x6", "x7"], dtype=object)
+    with pytest.raises(ValueError) as err:
+        encode_labels(task, y, {})
+    assert "x5" in str(err.value) and "x6" not in str(err.value)
+
+
+def test_nan_and_na_predictions_are_invalid():
+    # "nan" is a real label here, so a NaN prediction must not be stringified into it.
+    task = TaskConfig(type="classify", label_column="y", labels=["nan", "b"])
+    y = np.array(["b", "b"], dtype=object)
+    _, enc = encode_labels(task, y, {"m": [float("nan"), pd.NA], "n": [np.float32("nan"), "b"]})
+    assert list(enc["m"]) == [-1, -1]
+    assert list(enc["n"]) == [-1, 1]
+
+
+def test_regression_np_float32_nan_is_missing():
+    task = TaskConfig(type="regress", label_column="y")
+    y, enc = encode_labels(task, np.array([1.0, 3.0]), {"m": [np.float32("nan"), 4.0]})
+    assert list(enc["m"]) == [2.0, 4.0]
