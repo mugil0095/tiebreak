@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ..config import ModelSpec, TaskConfig
-from ..data import DataError, Dataset, concat
+from ..data import DataError, concat
 from ..protocol import Fold, Split
 from .base import CandidateResult, aggregate
 
@@ -103,7 +104,7 @@ def to_numeric_features(frame: pd.DataFrame, text_col: str | None) -> pd.DataFra
 
 
 def _preprocessor(frame: pd.DataFrame, text_col: str | None) -> ColumnTransformer:
-    frame = to_numeric_features(frame, text_col)
+    # Column types were decided once in MLCandidate._numeric_split; classify by dtype only.
     parts = []
     if text_col and text_col in frame.columns:
         parts.append(("text", TfidfVectorizer(max_features=1000, ngram_range=(1, 2)), text_col))
@@ -139,8 +140,8 @@ class MLCandidate:
         sc, sh = split.scoring, split.shots
         conv = to_numeric_features(concat(sc, sh).frame, self.task.text_column)
         n = len(sc)
-        sc2 = Dataset(sc.ids, conv.iloc[:n].reset_index(drop=True), sc.y, sc.text)
-        sh2 = None if sh is None else Dataset(sh.ids, conv.iloc[n:].reset_index(drop=True), sh.y, sh.text)
+        sc2 = replace(sc, frame=conv.iloc[:n].reset_index(drop=True))
+        sh2 = None if sh is None else replace(sh, frame=conv.iloc[n:].reset_index(drop=True))
         return sc2, sh2
 
     def run(self, split: Split, folds: list[Fold]) -> CandidateResult:

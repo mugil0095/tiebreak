@@ -161,3 +161,32 @@ def test_regression_repeat_disagreement_is_zero():
     split = make_split(ds, task)
     res = MLCandidate(ModelSpec(name="ridge", kind="ml", estimator="ridge"), task).run(split, make_folds(split.scoring.y, task))
     assert res.repeat_disagreement == 0.0
+
+
+@pytest.mark.parametrize("bad", ["two", "007"])
+def test_column_type_decided_once_not_per_fold(bad):
+    n = 60
+    vals = [str(i % 7 + 1) for i in range(n)]
+    vals[n - 1] = bad  # lands in only one held-out fold per repeat
+    y = np.array(["a", "b"] * (n // 2), dtype=object)
+    ds = Dataset([f"r{i}" for i in range(n)], pd.DataFrame({"c": vals}), y, None)
+    task = TaskConfig(type="binary", label_column="y", labels=["a", "b"], cv_folds=3, cv_repeats=1)
+    split = make_split(ds, task)
+    res = MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), task).run(
+        split, make_folds(split.scoring.y, task))
+    assert len(res.predictions) == n
+    from tiebreak.candidates import ml  # noqa
+    seen = []
+    orig = ml._preprocessor
+
+    def spy(frame, text_col):
+        seen.append(pd.api.types.is_numeric_dtype(frame["c"]))
+        return orig(frame, text_col)
+
+    ml._preprocessor = spy
+    try:
+        MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), task).run(
+            split, make_folds(split.scoring.y, task))
+    finally:
+        ml._preprocessor = orig
+    assert seen and not any(seen)  # categorical in every fold
