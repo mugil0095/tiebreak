@@ -301,3 +301,15 @@ def test_seed_from_store_false_leaves_a_shared_cap_untouched(tmp_path):
     execute_calls(calls(4), Counting(), PredictionStore(path), cap=shared, seed_from_store=False, **NO_SLEEP)
     assert seeded.spent == pytest.approx(0.04)
     assert shared.spent == 0.0
+
+
+def test_valid_for_keeps_only_records_matching_key_and_hashes(tmp_path):
+    from tiebreak.candidates.llm import hash_text
+    store = PredictionStore(tmp_path / "p.jsonl")
+    cs = [Call(("m", f"e{i}", 0), f"p{i}", "cfg") for i in range(3)]
+    execute_calls(cs, Counting(), store, **NO_SLEEP)
+    execute_calls([Call(("m", "e0", 1), "p0", "cfg")], Counting(), store, **NO_SLEEP)  # extra repeat
+    wanted = [cs[0], Call(("m", "e1", 0), "changed prompt", "cfg"), Call(("m", "e2", 0), "p2", "other")]
+    got = store.valid_for(wanted)
+    assert [r.example_id for r in got] == ["e0"] and got[0].repeat == 0
+    assert hash_text("p0") == got[0].prompt_hash

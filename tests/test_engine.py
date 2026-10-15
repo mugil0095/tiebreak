@@ -167,3 +167,91 @@ def test_api_key_values_are_scrubbed_from_stored_errors(tmp_path, monkeypatch):
     spec = ModelSpec(name="k", kind="llm", provider="mock", model="k", api_key_env="MY_KEY")
     run_experiment(TASK, [LR, spec], dataset(20), tmp_path / "r", completer_factory=lambda s: Leaky(), retries=0, **NS)
     assert "supersecretvalue123" not in (tmp_path / "r" / "predictions.jsonl").read_text()
+
+
+def _scores(res):
+    return {c["name"]: (c["status"], c["score"]) for c in res.data["candidates"]}
+
+
+def test_reducing_repeats_in_same_folder_matches_a_fresh_run(tmp_path):
+    from collections import Counter
+
+    class Drifting:
+        """Right on the first call for a prompt, wrong on later ones (so repeats 1-2 would flip the vote)."""
+        def __init__(self): self.seen, self.truth = Counter(), {}
+        def prime(self, m): self.truth.update(m)
+        def complete(self, p):
+            self.seen[p] += 1
+            t = self.truth[p]
+            return Completion(t if self.seen[p] == 1 else next(l for l in TASK.labels if l != t), 10, 2, 0.001, 0.1)
+
+    t3 = TASK.model_copy(update={"repeats": 3})
+    models = [LR, mock("m", 0.8)]
+    f = lambda spec: Drifting()
+    run_experiment(t3, models, dataset(60), tmp_path / "r", completer_factory=f, concurrency=1, **NS)
+    again = run_experiment(TASK, models, dataset(60), tmp_path / "r", completer_factory=f, concurrency=1, **NS)
+    fresh = run_experiment(TASK, models, dataset(60), tmp_path / "fresh", completer_factory=f, concurrency=1, **NS)
+    assert _scores(again) == _scores(fresh)
+    assert dict(_scores(fresh))["m"][1] > 0.9
+
+
+def test_old_config_answers_never_fill_a_partially_run_candidate(tmp_path):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    def factory(acc):
+        return lambda spec: SimulatedCompleter(acc, TASK.labels, cost_per_call=0.001) if spec.name != "logreg" else None
+
+    old = ModelSpec(name="m", kind="llm", provider="mock", model="m", params={"accuracy": 0.97})
+    new = ModelSpec(name="m", kind="llm", provider="mock", model="m", params={"accuracy": 0.30})
+    run_experiment(TASK, [LR, old], dataset(200), tmp_path / "r", completer_factory=factory(0.97), **NS)
+    res = run_experiment(TASK, [LR, new], dataset(200), tmp_path / "r", completer_factory=factory(0.30), **NS)
+    m = next(c for c in res.data["candidates"] if c["name"] == "m")
+    assert m["status"] == "eliminated"
+    assert m["score"] < 0.6  # only the new low-accuracy answers; old answers would give ~0.75
+
+
+def test_two_round_path_flags_failing_candidate_instead_of_eliminating(tmp_path):
+    class Broken:
+        def complete(self, p): raise TimeoutError("down")
+
+    res = run_experiment(TASK, [LR, mock("broken", 0.9)], dataset(200), tmp_path / "r",
+                         completer_factory=lambda s: Broken(), retries=0, **NS)
+    b = next(c for c in res.data["candidates"] if c["name"] == "broken")
+    assert b["status"] == "excluded" and b["error_rate"] == 1.0
+    assert any("broken" in w and "failed" in w for w in res.data["warnings"])
+    assert not res.data["elimination_log"]
+
+
+def test_partial_round_one_errors_do_not_cause_elimination(tmp_path):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    class Flaky(SimulatedCompleter):
+        def complete(self, p):
+            c = super().complete(p)
+            if sum(map(ord, p)) % 7 == 0:
+                raise TimeoutError("flaky")
+            return c
+
+    def factory(spec):
+        return Flaky(0.34, TASK.labels) if spec.name == "bad" else SimulatedCompleter(0.97, TASK.labels)
+
+    res = run_experiment(TASK, [LR, mock("good", 0.97), mock("bad", 0.34)], dataset(200), tmp_path / "r",
+                         completer_factory=factory, retries=0, **NS)
+    bad = next(c for c in res.data["candidates"] if c["name"] == "bad")
+    assert 0 < bad["error_rate"] < 0.5
+    assert bad["status"] != "eliminated" and not res.data["elimination_log"]
+
+
+def test_snapshot_never_contains_secrets(tmp_path):
+    spec = ModelSpec(name="m", kind="llm", provider="mock", model="m", base_url="http://user:pw123@localhost:8000/v1",
+                     params={"accuracy": 0.9, "api_key": "sk-abc123456", "nested": {"Authorization": "Bearer zzz"}})
+    run_experiment(TASK, [spec], dataset(30), tmp_path / "r", **NS)
+    text = (tmp_path / "r" / "config.snapshot" / "models.json").read_text()
+    for secret in ("sk-abc123456", "pw123", "Bearer zzz"):
+        assert secret not in text
+    assert "localhost:8000" in text and '"accuracy": 0.9' in text
+
+
+def test_fewer_than_two_scoring_examples_is_a_clear_error(tmp_path):
+    with pytest.raises(ValueError, match="at least 2"):
+        run_experiment(TASK, [mock("m", 0.9)], dataset(1), tmp_path / "r", **NS)

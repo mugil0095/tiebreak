@@ -88,6 +88,16 @@ class PredictionStore:
                 f.flush()
             self._records[(rec.candidate, rec.example_id, rec.repeat)] = rec
 
+    def valid_for(self, calls: list[Call]) -> list[CallRecord]:
+        """Stored records that answer exactly these calls: same key AND same prompt/config hash.
+        Anything else (old repeats, old prompt, old config) must never be scored."""
+        out = []
+        for c in calls:
+            rec = self.lookup(c.key)
+            if rec is not None and rec.prompt_hash == hash_text(c.prompt) and rec.config_hash == c.config_hash:
+                out.append(rec)
+        return out
+
     def for_candidate(self, name: str) -> list[CallRecord]:
         with self._lock:
             return [r for k, r in self._records.items() if k[0] == name]

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import platform
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -73,6 +74,30 @@ def _clean(obj):
     return obj
 
 
+_SECRET_KEY = re.compile(r"api[_-]?key|token|secret|password|authorization", re.I)
+
+
+def _redact_params(obj):
+    if isinstance(obj, dict):
+        return {k: "[redacted]" if _SECRET_KEY.search(str(k)) else _redact_params(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_params(v) for v in obj]
+    return obj
+
+
+def _safe_spec(m: ModelSpec) -> dict:
+    d = m.model_dump()
+    d["params"] = _redact_params(d["params"])
+    if d.get("base_url"):
+        u = urlparse(d["base_url"])
+        if u.username or u.password:
+            host = u.hostname or ""
+            if ":" in host:
+                host = f"[{host}]"
+            d["base_url"] = u._replace(netloc=host + (f":{u.port}" if u.port else "")).geturl()
+    return d
+
+
 def run_experiment(
     task: TaskConfig, models: list[ModelSpec], dataset: Dataset, run_dir, *,
     pricing: dict | None = None, max_cost: float | None = None, concurrency: int = 4,
@@ -99,7 +124,7 @@ def run_experiment(
     (run_dir / "config.snapshot").mkdir(parents=True, exist_ok=True)
     (run_dir / "config.snapshot" / "task.json").write_text(task.model_dump_json(indent=2), encoding="utf-8")
     (run_dir / "config.snapshot" / "models.json").write_text(
-        json.dumps([m.model_dump() for m in models], indent=2), encoding="utf-8")
+        json.dumps([_safe_spec(m) for m in models], indent=2), encoding="utf-8")
     store = PredictionStore(run_dir / "predictions.jsonl")
     llm_names = [m.name for m in models if m.kind == "llm"]
     cap = CostCap(max_cost)
@@ -111,6 +136,8 @@ def run_experiment(
 
     split = make_split(dataset, task)
     scoring, n = split.scoring, len(split.scoring)
+    if n < 2:
+        raise ValueError(f"need at least 2 scoring examples to compare candidates; got {n}")
     metric = get_metric(task.metric_name)
     warnings: list[str] = []
     elimination_log: list[str] = []
@@ -136,21 +163,32 @@ def run_experiment(
     order = np.random.default_rng(task.seed).permutation(n)
     rounds = [list(order[:first]), list(order[first:])] if first < n else [list(order)]
     active = list(cands)
+    all_positions = list(range(n))
+    expected = {name: cand.build_calls(scoring, split.shots, all_positions) for name, cand in cands.items()}
+
+    def valid_records(name, calls=None):
+        return store.valid_for(expected[name] if calls is None else calls)
+
     try:
         for r, positions in enumerate(rounds):
             for name in active:
                 cand = cands[name]
-                execute_calls(cand.build_calls(scoring, split.shots, positions), cand.completer, store,
+                round_calls = cand.build_calls(scoring, split.shots, positions)
+                execute_calls(round_calls, cand.completer, store,
                               price=prices[name], cap=cap, concurrency=concurrency, retries=retries,
                               sleep=sleep, secrets=secrets, seed_from_store=False)
             if r == 0 and len(rounds) == 2 and len(active) + len(ml_specs) >= 2:
                 sub = np.array(sorted(positions))
-                finals = {name: cands[name].finalize(scoring, store.for_candidate(name)) for name in active}
+                round_calls = {name: cands[name].build_calls(scoring, split.shots, positions) for name in active}
+                recs = {name: valid_records(name, round_calls[name]) for name in active}
+                finals = {name: cands[name].finalize(scoring, recs[name]) for name in active}
+                # a candidate with ANY failed call in this round is judged at the end, never dropped here
+                failed = {name for name in active if any(r.error is not None for r in recs[name])}
                 y_all, enc = encode_labels(task, scoring.y, {
                     **{k: v.predictions for k, v in results.items()},
                     **{name: f.predictions for name, f in finals.items()},
                 })
-                valid = {k: v for k, v in enc.items() if k in results or bool(finals[k].mask[sub].all())}
+                valid = {k: v for k, v in enc.items() if k in results or (k not in failed and bool(finals[k].mask[sub].all()))}
                 if len(valid) >= 2:
                     drop = clearly_worse(y_all[sub], {k: v[sub] for k, v in valid.items()}, metric.fn,
                                          task.margin, eligible=set(active), seed=task.seed)
@@ -167,23 +205,23 @@ def run_experiment(
         warnings.append("The cost cap was reached; the run is incomplete. Re-run with --resume and a higher cap.")
 
     for name, cand in cands.items():
-        res = cand.finalize(scoring, store.for_candidate(name))
+        res = cand.finalize(scoring, valid_records(name))
         res.eliminated = name not in active
         results[name] = res
 
     # --- decide which candidates take part in the comparison ---
     status: dict[str, str] = {}
     for name, res in results.items():
-        if res.eliminated:
-            status[name] = "eliminated"
-        elif res.kind == "llm" and (res.error_rate >= HIGH_ERROR_RATE or res.mask is None or not res.mask.all()):
+        if res.kind == "llm" and res.error_rate >= HIGH_ERROR_RATE:
             status[name] = "excluded"
-            if res.error_rate >= HIGH_ERROR_RATE:
-                warnings.append(f"{name}: {res.error_rate:.0%} of calls failed; excluded from the comparison")
-                notes[name] = f"{res.error_rate:.0%} of calls failed"
-            else:
-                warnings.append(f"{name}: not all examples were evaluated; excluded from the comparison")
-                notes[name] = "incomplete evaluation"
+            warnings.append(f"{name}: {res.error_rate:.0%} of calls failed; excluded from the comparison")
+            notes[name] = f"{res.error_rate:.0%} of calls failed"
+        elif res.eliminated:
+            status[name] = "eliminated"
+        elif res.kind == "llm" and (res.mask is None or not res.mask.all()):
+            status[name] = "excluded"
+            warnings.append(f"{name}: not all examples were evaluated; excluded from the comparison")
+            notes[name] = "incomplete evaluation"
         else:
             status[name] = "included"
     included = [n_ for n_ in results if status[n_] == "included"]
@@ -207,7 +245,7 @@ def run_experiment(
                for m in suspected_mislabels(scoring.ids, y_enc, enc)] if len(included) >= 2 else []
     else:
         mis = []
-    dis = disagreements(scoring.ids, enc) if len(included) >= 2 else []
+    dis = disagreements(scoring.ids, enc) if len(included) >= 2 and task.type != "regress" else []
     balance = class_balance(scoring.y) if task.type in ("classify", "binary") else {}
     widths = {k: boot.ci[k][1] - boot.ci[k][0] for k in included} if boot else {}
     warnings += sample_warnings(n, task.margin, balance, widths)
