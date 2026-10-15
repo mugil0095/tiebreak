@@ -35,6 +35,10 @@ def frontier_svg(points: list[dict]) -> str:
         xlabel += f"; costs at or below $0 are clamped to ${COST_FLOOR:g}"
     out = [(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="100%" role="img" '
             f'aria-label="Score versus cost">'),
+           '<title>Score versus total cost</title>',
+           ('<desc>Each candidate is a point: total cost at the expected volume on a log scale (horizontal) '
+            'against score (vertical), with a vertical bar for its 95% interval. Candidates tied with the '
+            'best are green.</desc>'),
            f'<line x1="{PAD}" y1="{H - PAD}" x2="{W - PAD}" y2="{H - PAD}" stroke="#888"/>',
            f'<line x1="{PAD}" y1="{PAD}" x2="{PAD}" y2="{H - PAD}" stroke="#888"/>',
            f'<text x="{W / 2}" y="{H - 10}" text-anchor="middle" font-size="12" fill="#555">{escape(xlabel)}</text>',

@@ -50,12 +50,34 @@ def test_redact_hides_example_ids():
 
 
 def test_inconclusive_and_no_recommendation_render():
+    rec_html = render_report(DATA)
+    assert "Recommendation:" in rec_html and "Safe choice" not in rec_html
+    assert '<div class="card rec">' in rec_html
     d = json.loads(json.dumps(DATA))
     d["recommendation"]["status"] = "inconclusive"
     d["recommendation"]["inconclusive"] = ["logreg"]
-    assert "cannot separate" in render_report(d).lower() or "Not enough data" in render_report(d)
+    html = render_report(d)
+    assert "Safe choice" in html and "Recommendation:" not in html
+    assert "Not enough data" in html
+    assert '<div class="card rec">' not in html  # inconclusive uses the warning style, not the green one
     d["recommendation"] = None
     assert "nothing to recommend" in render_report(d).lower()
+
+
+def test_mislabel_list_is_capped_and_redaction_still_applies():
+    d = copy.deepcopy(DATA)
+    d["diagnostics"]["mislabels"] = [{"id": f"id{i}", "label": "a", "disagree_fraction": 1.0} for i in range(40)]
+    html = render_report(d)
+    assert "id24 " in html and "id25 " not in html
+    assert "and 15 more (see results.json)" in html
+    red = render_report(d, redact=True)
+    assert "id0 " not in red and "more (see results.json)" not in red
+
+
+def test_svg_has_title_and_desc_and_table_headers_have_scope():
+    html = render_report(DATA)
+    assert "<title>Score versus total cost</title>" in html and "<desc>" in html
+    assert 'scope="col"' in html and "<th>" not in html
 
 
 def test_frontier_svg_marks_highlight_and_escapes_names():

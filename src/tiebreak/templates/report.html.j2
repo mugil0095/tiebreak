@@ -16,7 +16,7 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 {% if warnings %}<div class="card warn"><strong>Warnings</strong><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
 
 {% if rec %}
-<div class="card rec">
+<div class="card {% if rec.status == "recommended" %}rec{% else %}warn{% endif %}">
   <strong>{% if rec.status == "recommended" %}Recommendation: {{ rec.winner }}{% else %}Safe choice: {{ rec.winner }} (cannot separate cheaper options yet){% endif %}</strong>
   <p>{{ rec.reason }}</p>
   {% if rec.status != "recommended" %}<p>Not enough data to tell some cheaper candidates from the best: {{ rec.inconclusive|join(", ") }}.</p>{% endif %}
@@ -31,7 +31,7 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 
 <h2>Candidates</h2>
 <div class="card"><table>
-<tr><th>Candidate</th><th>Status</th><th>{{ task.metric }}</th><th>95% interval</th><th>Cost / 1k</th><th>Total at volume</th><th>p50 / p95 latency</th><th>Invalid</th><th>Errors</th></tr>
+<tr><th scope="col">Candidate</th><th scope="col">Status</th><th scope="col">{{ task.metric }}</th><th scope="col">95% interval</th><th scope="col">Cost / 1k</th><th scope="col">Total at volume</th><th scope="col">p50 / p95 latency</th><th scope="col">Invalid</th><th scope="col">Errors</th></tr>
 {% for c in rows %}
 <tr><td>{{ c.name }} <span class="tag">{{ c.kind }}</span></td>
 <td>{{ c.status }}{% if c.tied %} (tied){% endif %}{% if c.note %}<br><span class="muted">{{ c.note }}</span>{% endif %}</td>
@@ -39,14 +39,14 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 {% endfor %}</table>
 <p class="muted">* price unknown: add the model to pricing.yaml. n/a = not available. Eliminated or excluded candidates are scored only on the examples they completed and are not part of the comparison. Latency is measured on this machine and network, not a provider benchmark.</p></div>
 
-{% if pairwise %}<h2>Pairwise comparisons</h2><div class="card"><table><tr><th>A</th><th>B</th><th>McNemar exact p</th></tr>
+{% if pairwise %}<h2>Pairwise comparisons</h2><div class="card"><table><tr><th scope="col">A</th><th scope="col">B</th><th scope="col">McNemar exact p</th></tr>
 {% for p in pairwise %}<tr><td>{{ p.a }}</td><td>{{ p.b }}</td><td>{{ p.p }}</td></tr>{% endfor %}</table></div>{% endif %}
 
 <h2>Diagnostics</h2>
 <div class="card">
 <p><strong>Suspected labelling mistakes:</strong>
 {% if redact %}<span class="muted">example ids redacted</span>
-{% elif mislabels %}{% for m in mislabels %}{{ m.id }} (labelled "{{ m.label }}", {{ m.pct }}% of candidates disagree){% if not loop.last %}, {% endif %}{% endfor %}
+{% elif mislabels %}{% for m in mislabels[:25] %}{{ m.id }} (labelled "{{ m.label }}", {{ m.pct }}% of candidates disagree){% if not loop.last %}, {% endif %}{% endfor %}{% if mislabels|length > 25 %} and {{ mislabels|length - 25 }} more (see results.json){% endif %}
 {% else %}none found{% endif %}</p>
 <p><strong>Examples where candidates disagree:</strong> {{ n_disagree }}{% if redact %} <span class="muted">(ids redacted)</span>{% endif %}</p>
 {% if elimination_log %}<p><strong>Dropped early to save money:</strong></p><ul>{% for e in elimination_log %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
