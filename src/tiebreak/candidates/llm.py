@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from collections import defaultdict
@@ -32,6 +33,22 @@ class Completer(Protocol):
 class Call:
     key: tuple[str, str, int]  # (candidate, example_id, repeat)
     prompt: str
+    config_hash: str = ""  # hash of provider+model+params; a cached answer is only valid for the same config
+
+
+class NonRetryableError(ValueError):
+    """A failure that retrying cannot fix (bad configuration, missing credentials)."""
+
+    retryable = False
+
+
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def config_hash(spec: ModelSpec) -> str:
+    payload = json.dumps([spec.provider, spec.model, spec.base_url, spec.params], sort_keys=True, default=str)
+    return hash_text(payload)
 
 
 _INSTRUCTIONS = {
@@ -99,7 +116,10 @@ class OpenAICompatCompleter:
     def complete(self, prompt: str) -> Completion:
         headers = {}
         if self.api_key_env:
-            headers["Authorization"] = f"Bearer {os.environ.get(self.api_key_env, '')}"
+            key = os.environ.get(self.api_key_env, "")
+            if not key:
+                raise NonRetryableError(f"environment variable {self.api_key_env} is not set or empty")
+            headers["Authorization"] = f"Bearer {key}"
         t0 = time.perf_counter()
         r = self.client.post(self.url, headers=headers, json={
             "model": self.model, "temperature": 0, "max_tokens": 64,
@@ -117,18 +137,23 @@ class OpenAICompatCompleter:
 
 class LiteLLMCompleter:
     def __init__(self, provider: str, model: str, params: dict | None = None):
+        params = dict(params or {})
+        clash = sorted({"temperature", "max_tokens"} & set(params))
+        if clash:
+            raise ValueError(f"params {clash} are set by tiebreak (temperature=0, max_tokens=64) and cannot be overridden")
+        self.timeout = params.pop("timeout", 60)
         try:
             import litellm
         except ImportError as e:
             raise ImportError("litellm is not installed; run: pip install tiebreak[llm]") from e
-        self.litellm, self.params = litellm, dict(params or {})
+        self.litellm, self.params = litellm, params
         self.model_id = f"{provider}/{model}"
 
     def complete(self, prompt: str) -> Completion:
         t0 = time.perf_counter()
         resp = self.litellm.completion(
             model=self.model_id, messages=[{"role": "user", "content": prompt}],
-            temperature=0, max_tokens=64, **self.params,
+            temperature=0, max_tokens=64, timeout=self.timeout, **self.params,
         )
         latency = time.perf_counter() - t0
         try:
@@ -174,11 +199,12 @@ class LLMCandidate:
         positions = range(len(scoring)) if positions is None else positions
         shots_text = self._shots_text(shots)
         calls, truth = [], {}
+        cfg = config_hash(self.spec)
         for i in positions:
             prompt = render_prompt(self.task, row_text(scoring, i), shots_text, self.spec.prompt)
             truth[prompt] = str(scoring.y[i])
             for r in range(self.task.repeats):
-                calls.append(Call((self.name, scoring.ids[i], r), prompt))
+                calls.append(Call((self.name, scoring.ids[i], r), prompt, cfg))
         prime = getattr(self.completer, "prime", None)
         if prime:
             prime(truth)

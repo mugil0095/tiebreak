@@ -105,3 +105,51 @@ def test_http_error_message_never_contains_the_api_key(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError) as ei:
         comp.complete("hi")
     assert "sk-super-secret" not in str(ei.value) and "Bearer" not in str(ei.value)
+
+
+def test_build_calls_carry_config_hash_that_tracks_config():
+    a = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x", params={"accuracy": 0.5}), TASK, object())
+    b = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x", params={"accuracy": 0.9}), TASK, object())
+    d = ds(["a"], ["pos"])
+    ha, hb = a.build_calls(d, None)[0].config_hash, b.build_calls(d, None)[0].config_hash
+    assert ha and hb and ha != hb and ha == a.build_calls(d, None)[0].config_hash
+
+
+def test_finalize_with_only_error_records():
+    scoring = ds(["a"], ["pos"])
+    cand = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x"), TASK, completer=object())
+    recs = [CallRecord("m", "e0", r, "", 0, 0, None, 0.0, "Timeout: x") for r in range(3)]
+    res = cand.finalize(scoring, recs)
+    assert res.predictions == [None] and res.error_rate == 1.0 and res.mask.all()
+    assert res.infer_seconds_per_pred == 0.0 and res.latencies == []
+
+
+def test_missing_api_key_env_is_a_clear_non_retryable_error(monkeypatch):
+    from tiebreak.candidates.llm import NonRetryableError
+    monkeypatch.delenv("NOPE_KEY", raising=False)
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    comp = OpenAICompatCompleter("http://localhost:1/v1", "tiny", "NOPE_KEY", client=client)
+    with pytest.raises(NonRetryableError, match="NOPE_KEY"):
+        comp.complete("hi")
+
+
+def test_litellm_completer_timeout_default_override_and_collisions(monkeypatch):
+    import sys
+    import types
+    seen = {}
+
+    def completion(**kw):
+        seen.update(kw)
+        msg = types.SimpleNamespace(content="pos")
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)],
+                                     usage=types.SimpleNamespace(prompt_tokens=1, completion_tokens=1))
+
+    fake = types.SimpleNamespace(completion=completion, completion_cost=lambda completion_response: 0.1)
+    monkeypatch.setitem(sys.modules, "litellm", fake)
+    from tiebreak.candidates.llm import LiteLLMCompleter
+    LiteLLMCompleter("openai", "gpt", {}).complete("hi")
+    assert seen["timeout"] == 60 and seen["temperature"] == 0
+    LiteLLMCompleter("openai", "gpt", {"timeout": 5, "top_p": 0.5}).complete("hi")
+    assert seen["timeout"] == 5 and seen["top_p"] == 0.5
+    with pytest.raises(ValueError, match="temperature"):
+        LiteLLMCompleter("openai", "gpt", {"temperature": 1})

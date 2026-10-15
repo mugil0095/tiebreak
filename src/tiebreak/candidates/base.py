@@ -17,6 +17,8 @@ class CallRecord:
     cost_usd: float | None
     latency_s: float
     error: str | None = None
+    prompt_hash: str = ""
+    config_hash: str = ""
 
 
 @dataclass
