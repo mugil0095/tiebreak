@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tiebreak.config import ModelSpec, TaskConfig, load_models, load_pricing, load_task
+from tiebreak.config import ConfigError, ModelSpec, TaskConfig, load_models, load_pricing, load_task
 
 
 def test_task_defaults():
@@ -57,9 +57,6 @@ def test_load_task_and_pricing(tmp_path):
     assert t.margin == 0.05 and t.text_column == "t"
     assert load_pricing(tmp_path / "pricing.yaml") == {"some-model": (0.5, 1.5)}
     assert load_pricing(None) == {}
-
-
-from tiebreak.config import ConfigError
 
 
 def _bad(tmp_path, name, text):

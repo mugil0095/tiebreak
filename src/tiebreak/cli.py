@@ -119,8 +119,8 @@ def _new_run_dir(out: Path) -> Path:
 @app.command()
 def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Option(..., "--models"),
         data: Path = typer.Option(..., "--data"), pricing: Path = typer.Option(None, "--pricing"),
-        out: Path = typer.Option(Path("runs"), "--out"), max_cost: float = typer.Option(None, "--max-cost"),
-        concurrency: int = typer.Option(4, "--concurrency"),
+        out: Path = typer.Option(Path("runs"), "--out"), max_cost: float = typer.Option(None, "--max-cost", min=0),
+        concurrency: int = typer.Option(4, "--concurrency", min=1),
         yes_send_data: bool = typer.Option(False, "--yes-send-data", help="Allow hosted providers to receive example text."),
         local_only: bool = typer.Option(False, "--local-only", help="Refuse to call any hosted provider."),
         resume: Path = typer.Option(None, "--resume", help="Existing run folder to continue."),
@@ -136,20 +136,30 @@ def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Opti
         report = write_report(run_dir)
     except CLEAN_ERRORS as e:
         _fail(e)
-    rec = res.data["recommendation"]
+    _print_summary(res.data, report)
+
+
+def _print_summary(data: dict, report) -> None:
+    """Only candidate names, scores, the recommendation and a few warnings; never example text."""
+    rec = data["recommendation"]
     if rec and rec.get("inconclusive"):
         typer.echo(f"Result: INCONCLUSIVE ({rec['status']}). {rec['reason']}")
     elif rec:
         typer.echo(f"Recommendation: {rec['winner']} ({rec['status']}). {rec['reason']}")
     else:
         typer.echo("No recommendation: nothing completed the evaluation.")
-    if res.data.get("incomplete"):
+    if data.get("incomplete"):
         typer.echo("The run is incomplete (cost cap reached). Use --resume with a higher --max-cost.")
-    warnings = res.data["warnings"]
-    for w in warnings[:3]:
+    warnings = list(data.get("warnings") or [])
+    shown = warnings[:3]
+    sim = [w for w in warnings if w.startswith("SIMULATED")]
+    if sim and sim[0] not in shown:
+        shown = [sim[0]] + shown[:2]
+    shown.sort(key=lambda w: not w.startswith("SIMULATED"))
+    for w in shown:
         typer.echo(f"warning: {w}")
-    if len(warnings) > 3:
-        typer.echo(f"... and {len(warnings) - 3} more warnings in the report")
+    if len(warnings) > len(shown):
+        typer.echo(f"... and {len(warnings) - len(shown)} more warnings in the report")
     typer.echo(f"Report: {Path(report).resolve()}")
 
 

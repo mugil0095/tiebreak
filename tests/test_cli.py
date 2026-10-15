@@ -1,9 +1,11 @@
 import json
+import subprocess
+import sys
 
 import yaml
 from typer.testing import CliRunner
 
-from tiebreak.cli import app
+from tiebreak.cli import _print_summary, app
 
 runner = CliRunner()
 
@@ -59,19 +61,45 @@ def test_resume_reuses_the_folder(tmp_path):
     assert len(list((work / "runs").iterdir())) == 1
 
 
-def test_inconclusive_is_said_in_first_line(tmp_path):
+def _data(inconclusive, warnings=()):
+    rec = {"status": "inconclusive" if inconclusive else "recommended", "winner": None if inconclusive else "w",
+           "inconclusive": inconclusive, "reason": "because"}
+    return {"recommendation": rec, "warnings": list(warnings), "incomplete": False}
+
+
+def test_inconclusive_is_said_in_first_line(capsys):
+    _print_summary(_data(True), "r.html")
+    assert "INCONCLUSIVE" in capsys.readouterr().out.splitlines()[0]
+    _print_summary(_data(False), "r.html")
+    assert "INCONCLUSIVE" not in capsys.readouterr().out
+
+
+def test_simulated_warning_always_shown_first(capsys):
+    ws = ["w1", "w2", "w3", "w4", "SIMULATED: fake"]
+    _print_summary(_data(False, ws), "r.html")
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("warning:")]
+    assert lines[0] == "warning: SIMULATED: fake" and len(lines) == 3
+
+
+def test_option_bounds(tmp_path):
     work = _demo(tmp_path)
-    (work / "models.yaml").write_text(
-        "- {name: a, kind: llm, provider: mock, model: a, params: {accuracy: 0.60, cost_per_call: 0.01}}\n"
-        "- {name: b, kind: llm, provider: mock, model: b, params: {accuracy: 0.60, cost_per_call: 0.02}}\n")
-    (work / "task.yaml").write_text(
-        "type: classify\nlabel_column: sentiment\ntext_column: review\nlabels: [negative, neutral, positive]\n"
-        "margin: 0.001\nvolume: 1000\nrepeats: 1\n")
-    r = _run(work)
-    assert r.exit_code == 0, r.output
+    assert _run(work, "--max-cost", "-1").exit_code != 0
+    assert _run(work, "--concurrency", "0").exit_code != 0
+
+
+def test_python_dash_m_tiebreak():
+    r = subprocess.run([sys.executable, "-m", "tiebreak", "--help"], capture_output=True, text=True)
+    assert r.returncode == 0 and "tiebreak" in (r.stdout + r.stderr).lower()
+
+
+def test_demo_shows_cheap_model_tying_expensive(tmp_path):
+    work = _demo(tmp_path)
+    assert _run(work).exit_code == 0
     res = json.loads(next((work / "runs").iterdir()).joinpath("results.json").read_text())
-    if res["recommendation"]["inconclusive"]:
-        assert "inconclusive" in r.output.splitlines()[0].lower()
+    rows = {c["name"]: c for c in res["candidates"]}
+    assert rows["sim-small"]["equivalent"] and rows["sim-large"]["equivalent"]
+    assert not rows["sim-weak"]["equivalent"]
+    assert res["recommendation"]["winner"] == "sim-small"
 
 
 def test_report_command_regenerates_and_redacts(tmp_path):
