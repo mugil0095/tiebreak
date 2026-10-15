@@ -69,6 +69,16 @@ tiebreak asks for short answers (`temperature: 0`, `max_tokens: 64`). A reasonin
 
 `params` are passed straight to LiteLLM and replace the defaults; they are part of the cache key, so changing them re-runs the calls.
 
+### Rate limits (free tiers)
+
+Hosted free tiers allow only a few requests per minute. Set `requests_per_minute` on a candidate and tiebreak spaces its calls, and use `--concurrency 1` so calls do not burst:
+
+```yaml
+- {name: hosted-a, kind: llm, provider: <provider>, model: "<model id>", requests_per_minute: 10}
+```
+
+If a provider still answers 429, tiebreak waits 8, 16, 32 then 60 seconds between up to six retries (other errors retry with a 1, 2, 4 second backoff). Calls that still fail are recorded as errors, the candidate is excluded with a warning, and `--resume` retries only those calls.
+
 ### Verify with your own provider
 
 The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm]"` and your own key):

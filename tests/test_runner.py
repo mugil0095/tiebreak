@@ -256,7 +256,7 @@ def _status_error(code):
     return httpx.HTTPStatusError("boom", request=req, response=httpx.Response(code, request=req))
 
 
-@pytest.mark.parametrize("code,expected_calls", [(401, 1), (400, 1), (404, 1), (429, 3), (408, 3), (500, 3)])
+@pytest.mark.parametrize("code,expected_calls", [(401, 1), (400, 1), (404, 1), (429, 7), (408, 3), (500, 3)])
 def test_retry_only_transient_http_errors(tmp_path, code, expected_calls):
     sleeps = []
 
@@ -339,3 +339,41 @@ def test_cost_cap_counts_superseded_spend_after_a_config_change(tmp_path):
         execute_calls(new, Counting(cost=0.1), store, cap=cap, concurrency=1, **NO_SLEEP)
     assert store.total_cost("m") == pytest.approx(0.5 + 0.2)  # 0.5 old + two new calls before the cap bit
     assert PredictionStore(path).total_cost("m") == pytest.approx(0.7)
+
+
+class RateLimitError(Exception):
+    """Named like the provider SDK exceptions: the runner recognises rate limits by class name or status 429."""
+
+
+def test_rate_limit_errors_get_more_attempts_and_longer_waits(tmp_path):
+    waits, state = [], {"n": 0}
+
+    class Flaky:
+        def complete(self, prompt):
+            state["n"] += 1
+            if state["n"] <= 4:
+                raise RateLimitError("429 slow down")
+            return Completion("pos", 1, 1, 0.0, 0.1)
+
+    recs = execute_calls(calls(1), Flaky(), PredictionStore(tmp_path / "p.jsonl"), retries=1, sleep=waits.append)
+    assert recs[0].error is None and state["n"] == 5  # a plain error would have stopped after 2 attempts
+    assert waits == [8.0, 16.0, 32.0, 60.0]
+
+
+def test_plain_errors_keep_the_short_backoff(tmp_path):
+    waits = []
+    execute_calls(calls(1), Counting(always_fail=True), PredictionStore(tmp_path / "p.jsonl"),
+                  retries=2, sleep=waits.append)
+    assert waits == [1.0, 2.0]
+
+
+def test_min_interval_spaces_call_starts(tmp_path):
+    now, waits = [100.0], []
+
+    def sleep(s):
+        waits.append(s)
+        now[0] += s
+
+    execute_calls(calls(4), Counting(), PredictionStore(tmp_path / "p.jsonl"), concurrency=1,
+                  min_interval=2.0, clock=lambda: now[0], sleep=sleep)
+    assert waits == [2.0, 2.0, 2.0]  # the first call starts immediately

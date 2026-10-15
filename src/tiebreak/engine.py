@@ -190,7 +190,9 @@ def _run_llm_rounds(task, scoring, shots, cands, results, prices, store, metric,
             for name in active:
                 cand = cands[name]
                 round_calls = cand.build_calls(scoring, shots, positions)
-                execute_calls(round_calls, cand.completer, store, price=prices[name], **exec_kw)
+                rpm = cand.spec.requests_per_minute
+                execute_calls(round_calls, cand.completer, store, price=prices[name],
+                              min_interval=60.0 / rpm if rpm else 0.0, **exec_kw)
             if rnd == 0 and len(rounds) == 2 and len(active) + len(results) >= 2:
                 _drop_clearly_worse(task, scoring, shots, positions, active, cands, results, store, metric,
                                     notes, elimination_log)

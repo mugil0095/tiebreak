@@ -141,6 +141,16 @@ def _retryable(e: Exception) -> bool:
     return True
 
 
+def _is_rate_limit(e: Exception) -> bool:
+    status = getattr(getattr(e, "response", None), "status_code", None) or getattr(e, "status_code", None)
+    return status == 429 or "RateLimit" in type(e).__name__
+
+
+RATE_LIMIT_RETRIES = 6      # rate limits clear with time, so they get more attempts than other errors
+RATE_LIMIT_WAIT = 8.0       # seconds before the first rate-limit retry; doubles each time, capped below
+RATE_LIMIT_MAX_WAIT = 60.0
+
+
 def _price_cost(price, tokens_in: int, tokens_out: int) -> float | None:
     if price is None:
         return None
@@ -152,6 +162,7 @@ def execute_calls(
     price=None, cap: CostCap | None = None, concurrency: int = 4,
     retries: int = 3, backoff: float = 1.0, sleep=time.sleep,
     secrets: list[str] | None = None, seed_from_store: bool = True,
+    min_interval: float = 0.0, clock=time.monotonic,
 ) -> list[CallRecord]:
     cap = cap or CostCap(None)
     stop = threading.Event()
@@ -172,16 +183,34 @@ def execute_calls(
     if cap.limit is not None and seed_from_store:  # the cap is cumulative across resumes
         cap.add(sum(store.total_cost(name) for name in {c.key[0] for c in calls}))
 
+    pace_lock, next_ok = threading.Lock(), [0.0]
+
+    def pace():
+        """Space call starts by min_interval seconds (a per-minute request limit), across all threads."""
+        if not min_interval:
+            return
+        with pace_lock:
+            now = clock()
+            wait = max(0.0, next_ok[0] - now)
+            next_ok[0] = max(now, next_ok[0]) + min_interval
+        if wait:
+            sleep(wait)
+
     def attempt_call(c: Call):
         last = ""
-        for attempt in range(retries + 1):
+        attempt = 0
+        while True:
+            pace()
             try:
                 return completer.complete(c.prompt), ""
             except Exception as e:  # provider errors are data, not crashes
                 last = _scrub(f"{type(e).__name__}: {e}", secrets)
-                if attempt >= retries or not _retryable(e):
+                limited = _is_rate_limit(e)
+                if attempt >= (max(retries, RATE_LIMIT_RETRIES) if limited else retries) or not _retryable(e):
                     break
-                sleep(backoff * 2**attempt)
+                sleep(min(RATE_LIMIT_MAX_WAIT, max(backoff, RATE_LIMIT_WAIT) * 2**attempt) if limited
+                      else backoff * 2**attempt)
+                attempt += 1
         return None, last
 
     def work(item):

@@ -118,3 +118,10 @@ def test_malformed_pricing_entry(tmp_path):
 def test_missing_file_is_file_not_found(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_task(tmp_path / "nope.yaml")
+
+
+def test_requests_per_minute_must_be_positive():
+    ok = ModelSpec(name="m", kind="llm", provider="p", model="x", requests_per_minute=10)
+    assert ok.requests_per_minute == 10
+    with pytest.raises(ValidationError):
+        ModelSpec(name="m", kind="llm", provider="p", model="x", requests_per_minute=0)

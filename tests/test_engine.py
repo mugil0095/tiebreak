@@ -494,3 +494,11 @@ def test_empty_answers_get_a_reasoning_model_hint(tmp_path):
                          completer_factory=lambda spec: Empty(), **NS)
     text = " ".join(res.data["warnings"])
     assert "thinker" in text and "Most answers were empty" in text and "think: false" in text
+
+
+def test_requests_per_minute_paces_the_calls(tmp_path):
+    waits = []
+    paced = mock("paced", 0.9).model_copy(update={"requests_per_minute": 600})
+    run_experiment(TASK, [LR, paced], dataset(60), tmp_path / "r", concurrency=1,
+                   n_boot=300, sleep=waits.append)
+    assert len(waits) >= 50  # one wait before almost every call; the stub does not really sleep

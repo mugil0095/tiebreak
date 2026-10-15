@@ -51,6 +51,7 @@ class ModelSpec(BaseModel):
     prompt: str | None = None
     base_url: str | None = None
     api_key_env: str | None = None
+    requests_per_minute: float | None = Field(None, gt=0)  # paces calls to stay under a provider's rate limit
     params: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
