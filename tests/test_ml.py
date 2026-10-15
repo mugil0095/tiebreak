@@ -153,14 +153,14 @@ def test_run_input_errors_are_clear():
         MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), no_text).run(split, folds)
 
 
-def test_regression_repeat_disagreement_is_zero():
+def test_regression_repeat_disagreement_is_undefined():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(60, 2))
     ds = Dataset([f"r{i}" for i in range(60)], pd.DataFrame(x, columns=["a", "b"]), x[:, 0], None)
     task = TaskConfig(type="regress", label_column="y", cv_folds=3, cv_repeats=2)
     split = make_split(ds, task)
     res = MLCandidate(ModelSpec(name="ridge", kind="ml", estimator="ridge"), task).run(split, make_folds(split.scoring.y, task))
-    assert res.repeat_disagreement == 0.0
+    assert res.repeat_disagreement is None
 
 
 @pytest.mark.parametrize("bad", ["two", "007"])

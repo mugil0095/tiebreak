@@ -32,7 +32,7 @@ class CandidateResult:
     latencies: list[float] = field(default_factory=list)
     invalid_rate: float = 0.0
     error_rate: float = 0.0
-    repeat_disagreement: float = 0.0
+    repeat_disagreement: float | None = 0.0
     eliminated: bool = False
     mask: np.ndarray | None = None
     notes: list[str] = field(default_factory=list)

@@ -193,9 +193,9 @@ class MLCandidate:
                 votes[pos][f.repeat] = inverse[int(p)] if inverse else float(p)
 
         predictions = [aggregate(v, self.classification) for v in votes]
-        # Regression predictions are floats that never compare equal, so disagreement is not defined there.
+        # Regression predictions are floats that never compare equal, so disagreement is not defined there (None, shown as n/a).
         disagree = (
-            float(np.mean([len({x for x in v if x is not None}) > 1 for v in votes])) if self.classification else 0.0
+            float(np.mean([len({x for x in v if x is not None}) > 1 for v in votes])) if self.classification else None
         )
         return CandidateResult(
             name=self.name, kind="ml", predictions=predictions,
