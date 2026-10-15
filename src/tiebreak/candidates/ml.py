@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 
 import numpy as np
@@ -16,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ..config import ModelSpec, TaskConfig
-from ..data import DataError, concat
+from ..data import DataError, Dataset, concat
 from ..protocol import Fold, Split
 from .base import CandidateResult, aggregate
 
@@ -54,7 +55,55 @@ def _make_estimator(name: str, classification: bool, seed: int):
     raise ValueError(f"estimator '{name}' is not available for {kind}; choose from {ESTIMATORS}")
 
 
+_LEADING_ZERO = re.compile(r"^-?0\d")
+
+
+def _parses_as_number(values: pd.Series) -> bool:
+    """True when every value is a plain finite number that survives a float round trip."""
+    nums = pd.to_numeric(values, errors="coerce")
+    if nums.isna().any() or not np.isfinite(nums.to_numpy(dtype=float)).all():
+        return False
+    for v in values:
+        if v.startswith("+") or _LEADING_ZERO.match(v):  # "+1", "01234", "007": identifiers, not numbers
+            return False
+        digits = re.sub(r"\D", "", re.split(r"[eE]", v)[0]).lstrip("0")
+        if len(digits) > 15:  # would lose precision as a float
+            return False
+    return True
+
+
+def to_numeric_features(frame: pd.DataFrame, text_col: str | None) -> pd.DataFrame:
+    """Return a copy of ``frame`` for ML use: numeric-looking string columns become float.
+
+    Only used on the ML path (Dataset.frame itself stays lossless for LLM prompts). A column
+    becomes numeric only if every non-blank value is a plain finite number (no leading zeros,
+    no leading "+", at most 15 significant digits); blank -> NaN. Otherwise it stays a string.
+    Entirely blank columns are dropped; the text column is never touched. The decision uses
+    feature values only (no labels), so computing it over all rows is leak-free.
+    """
+    out = {}
+    for col in frame.columns:
+        ser = frame[col]
+        if col == text_col:
+            out[col] = ser
+        elif pd.api.types.is_numeric_dtype(ser):
+            if ser.notna().any():
+                out[col] = ser
+        else:
+            txt = ser.astype("string").str.strip()
+            txt = txt.mask(txt == "")
+            nonblank = txt.dropna()
+            if nonblank.empty:
+                continue
+            if _parses_as_number(nonblank.astype(str)):
+                out[col] = pd.to_numeric(txt, errors="coerce").astype(float)
+            else:
+                out[col] = ser
+    return pd.DataFrame(out, index=frame.index)
+
+
 def _preprocessor(frame: pd.DataFrame, text_col: str | None) -> ColumnTransformer:
+    frame = to_numeric_features(frame, text_col)
     parts = []
     if text_col and text_col in frame.columns:
         parts.append(("text", TfidfVectorizer(max_features=1000, ngram_range=(1, 2)), text_col))
@@ -85,8 +134,25 @@ class MLCandidate:
         self.classification = task.type in ("classify", "binary")
         _make_estimator(spec.estimator, self.classification, task.seed)  # fail early on bad combos
 
+    def _numeric_split(self, split: Split):
+        """Convert numeric-looking columns once over scoring+shots rows so train and test agree."""
+        sc, sh = split.scoring, split.shots
+        conv = to_numeric_features(concat(sc, sh).frame, self.task.text_column)
+        n = len(sc)
+        sc2 = Dataset(sc.ids, conv.iloc[:n].reset_index(drop=True), sc.y, sc.text)
+        sh2 = None if sh is None else Dataset(sh.ids, conv.iloc[n:].reset_index(drop=True), sh.y, sh.text)
+        return sc2, sh2
+
     def run(self, split: Split, folds: list[Fold]) -> CandidateResult:
-        scoring, task = split.scoring, self.task
+        task = self.task
+        if not folds:
+            raise ValueError("no cross-validation folds were given")
+        if task.text_column and task.text_column not in split.scoring.frame.columns:
+            raise DataError(f"text column '{task.text_column}' is missing from the data frame")
+        bad = sorted({str(v) for v in split.scoring.y} - set(task.labels)) if self.classification else []
+        if bad:
+            raise ValueError(f"labels not in task.labels: {bad[:5]}")
+        scoring, shots = self._numeric_split(split)
         n = len(scoring)
         n_rep = max(f.repeat for f in folds) + 1
         votes: list[list] = [[None] * n_rep for _ in range(n)]
@@ -95,7 +161,7 @@ class MLCandidate:
         fit_times, pred_time, pred_count, latencies = [], 0.0, 0, []
 
         for f in folds:
-            train = concat(scoring.take(f.train), split.shots)
+            train = concat(scoring.take(f.train), shots)
             test = scoring.take(f.test)
             y_train = (
                 np.array([vocab[v] for v in train.y]) if vocab else train.y.astype(float)
@@ -117,7 +183,10 @@ class MLCandidate:
                 votes[pos][f.repeat] = inverse[int(p)] if inverse else float(p)
 
         predictions = [aggregate(v, self.classification) for v in votes]
-        disagree = float(np.mean([len({x for x in v if x is not None}) > 1 for v in votes]))
+        # Regression predictions are floats that never compare equal, so disagreement is not defined there.
+        disagree = (
+            float(np.mean([len({x for x in v if x is not None}) > 1 for v in votes])) if self.classification else 0.0
+        )
         return CandidateResult(
             name=self.name, kind="ml", predictions=predictions,
             train_seconds=float(np.mean(fit_times)),

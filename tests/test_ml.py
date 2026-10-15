@@ -1,13 +1,12 @@
 import numpy as np
+import pandas as pd
 import pytest
 
-from tiebreak.candidates.ml import ESTIMATORS, MLCandidate
+from tiebreak.candidates.ml import MLCandidate, to_numeric_features
 from tiebreak.config import ModelSpec, TaskConfig
 from tiebreak.data import DataError, Dataset, load_dataset
 from tiebreak.demo import make_reviews
 from tiebreak.protocol import make_folds, make_split
-
-import pandas as pd
 
 
 def reviews_dataset(n=150, seed=0):
@@ -93,8 +92,72 @@ def test_csv_numeric_column_trains_end_to_end(tmp_path):
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
     task = TaskConfig(type="binary", label_column="y", labels=["no", "yes"], cv_folds=3, cv_repeats=1)
     ds = load_dataset(p, task)
-    assert pd.api.types.is_float_dtype(ds.frame["x"])
+    assert ds.frame["x"].iloc[0] == f"{x[0]:.4f}"  # frame stays the original strings
     split = make_split(ds, task)
     res = MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), task).run(
         split, make_folds(split.scoring.y, task))
     assert np.mean([p_ == t for p_, t in zip(res.predictions, split.scoring.y)]) > 0.9
+
+
+def test_zip_codes_stay_categorical_and_frame_is_lossless(tmp_path):
+    p = tmp_path / "z.csv"
+    p.write_text("\n".join(["id,zip,age,y", "r0,01234,34,a", "r1,98765,40,b", "r2,01234,35,a", ""]), encoding="utf-8")
+    task = TaskConfig(type="binary", label_column="y", labels=["a", "b"])
+    ds = load_dataset(p, task)
+    assert ds.frame["zip"].tolist() == ["01234", "98765", "01234"] and ds.frame["age"].tolist() == ["34", "40", "35"]
+    out = to_numeric_features(ds.frame, None)
+    assert out["zip"].tolist() == ["01234", "98765", "01234"]  # leading zero -> categorical
+    assert out["age"].dtype.kind == "f"
+
+
+@pytest.mark.parametrize("bad", ["inf", "nan", "-inf", "+5", "007", "1234567890123456"])
+def test_non_plain_numbers_keep_column_categorical(bad):
+    out = to_numeric_features(pd.DataFrame({"c": ["1", bad, "2"]}), None)
+    assert out["c"].tolist() == ["1", bad, "2"]
+
+
+def test_scientific_notation_negatives_blanks_parse_numeric():
+    out = to_numeric_features(pd.DataFrame({"c": ["1e3", "-2.5", " ", None, "0.5", "0"]}), None)
+    assert out["c"].dtype.kind == "f"
+    assert out["c"].iloc[0] == 1000.0 and out["c"].iloc[1] == -2.5 and np.isnan(out["c"].iloc[2]) and np.isnan(out["c"].iloc[3])
+
+
+def test_all_blank_column_dropped_text_untouched_mixed_stays_string():
+    df = pd.DataFrame({"t": ["1", "2"], "blank": ["", " "], "mix": ["1", "two"], "n": ["3", "4"]})
+    out = to_numeric_features(df, "t")
+    assert list(out.columns) == ["t", "mix", "n"] and out["t"].tolist() == ["1", "2"]
+    assert out["mix"].tolist() == ["1", "two"] and out["n"].dtype.kind == "f"
+
+
+def test_only_blank_columns_gives_no_feature_columns_error():
+    ds = Dataset(["a", "b", "c", "d"], pd.DataFrame({"z": ["", "", "", ""]}), np.array(["x", "y", "x", "y"], dtype=object), None)
+    task = TaskConfig(type="binary", label_column="y", labels=["x", "y"], cv_folds=2, cv_repeats=1)
+    split = make_split(ds, task)
+    with pytest.raises(DataError, match="no feature columns"):
+        MLCandidate(ModelSpec(name="x", kind="ml", estimator="logistic_regression"), task).run(
+            split, make_folds(split.scoring.y, task))
+
+
+def test_run_input_errors_are_clear():
+    ds = reviews_dataset(30)
+    split = make_split(ds, TASK)
+    cand = MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), TASK)
+    with pytest.raises(ValueError, match="no cross-validation folds"):
+        cand.run(split, [])
+    folds = make_folds(split.scoring.y, TASK)
+    narrow = TaskConfig(type="classify", label_column="sentiment", text_column="review", labels=["negative", "positive"])
+    with pytest.raises(ValueError, match="not in task.labels"):
+        MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), narrow).run(split, folds)
+    no_text = TaskConfig(type="classify", label_column="sentiment", text_column="nope", labels=TASK.labels)
+    with pytest.raises(DataError, match="text column"):
+        MLCandidate(ModelSpec(name="lr", kind="ml", estimator="logistic_regression"), no_text).run(split, folds)
+
+
+def test_regression_repeat_disagreement_is_zero():
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(60, 2))
+    ds = Dataset([f"r{i}" for i in range(60)], pd.DataFrame(x, columns=["a", "b"]), x[:, 0], None)
+    task = TaskConfig(type="regress", label_column="y", cv_folds=3, cv_repeats=2)
+    split = make_split(ds, task)
+    res = MLCandidate(ModelSpec(name="ridge", kind="ml", estimator="ridge"), task).run(split, make_folds(split.scoring.y, task))
+    assert res.repeat_disagreement == 0.0

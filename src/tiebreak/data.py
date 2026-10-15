@@ -117,10 +117,4 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
                 raise DataError("the data needs at least two distinct labels")
 
     frame = df.drop(columns=[c for c in (lc, "id") if c in df.columns]).reset_index(drop=True)
-    for col in frame.columns:
-        if col == tc or suffix != ".csv":
-            continue
-        converted = pd.to_numeric(frame[col], errors="coerce")
-        if converted.notna().sum() == frame[col].notna().sum():  # every non-blank value parsed
-            frame[col] = converted.astype(float)
     return Dataset(ids, frame, y, text)
