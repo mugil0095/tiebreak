@@ -204,6 +204,14 @@ def _run_llm_rounds(task, scoring, shots, cands, results, prices, store, metric,
     return active, elimination_log, incomplete
 
 
+def _first_error(res) -> str:
+    """The first stored provider error (already scrubbed and truncated), so the warning says why."""
+    for c in res.calls:
+        if c.error:
+            return f" (first error: {c.error[:140]})"
+    return ""
+
+
 def _mostly_empty(res) -> bool:
     ok = [c for c in res.calls if c.error is None]
     return bool(ok) and sum(1 for c in ok if not c.raw.strip()) / len(ok) > 0.5
@@ -215,7 +223,8 @@ def _decide_status(results: dict[str, CandidateResult], n: int, warnings: list[s
     for name, res in results.items():
         if res.kind == "llm" and res.error_rate >= HIGH_ERROR_RATE:
             status[name] = "excluded"
-            warnings.append(f"{name}: {res.error_rate:.0%} of calls failed; excluded from the comparison")
+            warnings.append(f"{name}: {res.error_rate:.0%} of calls failed; excluded from the comparison"
+                            + _first_error(res))
             notes[name] = f"{res.error_rate:.0%} of calls failed"
         elif res.eliminated:
             status[name] = "eliminated"

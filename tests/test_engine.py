@@ -502,3 +502,14 @@ def test_requests_per_minute_paces_the_calls(tmp_path):
     run_experiment(TASK, [LR, paced], dataset(60), tmp_path / "r", concurrency=1,
                    n_boot=300, sleep=waits.append)
     assert len(waits) >= 50  # one wait before almost every call; the stub does not really sleep
+
+
+def test_failure_warning_includes_the_first_error(tmp_path):
+    class Down:
+        def complete(self, p):
+            raise TimeoutError("provider is down")
+
+    res = run_experiment(TASK, [LR, mock("down", 0.9)], dataset(60), tmp_path / "r",
+                         completer_factory=lambda spec: Down(), retries=0, **NS)
+    assert any("down: 100% of calls failed" in w and "first error: TimeoutError: provider is down" in w
+               for w in res.data["warnings"])

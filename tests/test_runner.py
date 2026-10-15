@@ -377,3 +377,16 @@ def test_min_interval_spaces_call_starts(tmp_path):
     execute_calls(calls(4), Counting(), PredictionStore(tmp_path / "p.jsonl"), concurrency=1,
                   min_interval=2.0, clock=lambda: now[0], sleep=sleep)
     assert waits == [2.0, 2.0, 2.0]  # the first call starts immediately
+
+
+def test_daily_quota_429_is_not_retried_and_says_so(tmp_path):
+    waits, state = [], {"n": 0}
+
+    class Daily:
+        def complete(self, prompt):
+            state["n"] += 1
+            raise RateLimitError('quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"')
+
+    recs = execute_calls(calls(1), Daily(), PredictionStore(tmp_path / "p.jsonl"), retries=3, sleep=waits.append)
+    assert state["n"] == 1 and waits == []
+    assert recs[0].error.startswith("RateLimitError (daily quota used up")

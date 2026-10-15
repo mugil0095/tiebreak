@@ -77,7 +77,7 @@ Hosted free tiers allow only a few requests per minute. Set `requests_per_minute
 - {name: hosted-a, kind: llm, provider: <provider>, model: "<model id>", requests_per_minute: 10}
 ```
 
-If a provider still answers 429, tiebreak waits 8, 16, 32 then 60 seconds between up to six retries (other errors retry with a 1, 2, 4 second backoff). Calls that still fail are recorded as errors, the candidate is excluded with a warning, and `--resume` retries only those calls.
+If a provider still answers 429, tiebreak waits 8, 16, 32 then 60 seconds between up to six retries (other errors retry with a 1, 2, 4 second backoff). A 429 that names a per-day quota is not retried (waiting minutes cannot clear it): the call is recorded with that reason and the warning shows it, so use a model with a bigger daily quota or come back after the reset. Calls that still fail are recorded as errors, the candidate is excluded with a warning, and `--resume` retries only those calls.
 
 ### Verify with your own provider
 

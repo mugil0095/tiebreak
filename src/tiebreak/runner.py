@@ -146,6 +146,11 @@ def _is_rate_limit(e: Exception) -> bool:
     return status == 429 or "RateLimit" in type(e).__name__
 
 
+def _is_daily_quota(e: Exception) -> bool:
+    """A 429 that says the DAILY quota is used up: waiting seconds or minutes cannot clear it."""
+    return bool(re.search(r"PerDay|per[ _-]?day|daily", str(e), re.I))
+
+
 RATE_LIMIT_RETRIES = 6      # rate limits clear with time, so they get more attempts than other errors
 RATE_LIMIT_WAIT = 8.0       # seconds before the first rate-limit retry; doubles each time, capped below
 RATE_LIMIT_MAX_WAIT = 60.0
@@ -204,8 +209,11 @@ def execute_calls(
             try:
                 return completer.complete(c.prompt), ""
             except Exception as e:  # provider errors are data, not crashes
-                last = _scrub(f"{type(e).__name__}: {e}", secrets)
                 limited = _is_rate_limit(e)
+                if limited and _is_daily_quota(e):  # put the reason first: stored errors are truncated
+                    last = _scrub(f"{type(e).__name__} (daily quota used up; retrying today will not help): {e}", secrets)
+                    break
+                last = _scrub(f"{type(e).__name__}: {e}", secrets)
                 if attempt >= (max(retries, RATE_LIMIT_RETRIES) if limited else retries) or not _retryable(e):
                     break
                 sleep(min(RATE_LIMIT_MAX_WAIT, max(backoff, RATE_LIMIT_WAIT) * 2**attempt) if limited
