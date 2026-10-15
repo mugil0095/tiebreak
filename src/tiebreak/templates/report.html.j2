@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiebreak report</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1d2330}
+h1{font-size:1.5rem} h2{font-size:1.1rem;margin-top:2rem}
+.card{border:1px solid #d5dae3;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
+.rec{background:#e9f7f1;border-color:#9fd8c3} .warn{background:#fff6e0;border-color:#f0d58a} .sim{background:#ffe9e9;border-color:#e8a0a0;font-weight:600}
+table{border-collapse:collapse;width:100%} th,td{padding:.4rem .6rem;border-bottom:1px solid #e3e6ec;text-align:right}
+th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.85rem}
+.tag{display:inline-block;padding:0 .5rem;border-radius:999px;background:#eef1f6;font-size:.8rem}
+</style></head><body>
+<h1>Which model should you use?</h1>
+{% if d.simulated %}<div class="card sim">SIMULATED RESULTS: some candidates are fake models with preset accuracy. Do not use this report to choose a real model.</div>{% endif %}
+{% if d.incomplete %}<div class="card warn"><strong>This run is incomplete (cost cap reached).</strong> Results cover only the work that finished.</div>{% endif %}
+{% if warnings %}<div class="card warn"><strong>Warnings</strong><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>{% endif %}
+
+{% if rec %}
+<div class="card rec">
+  <strong>{% if rec.status == "recommended" %}Recommendation: {{ rec.winner }}{% else %}Safe choice: {{ rec.winner }} (cannot separate cheaper options yet){% endif %}</strong>
+  <p>{{ rec.reason }}</p>
+  {% if rec.status != "recommended" %}<p>Not enough data to tell some cheaper candidates from the best: {{ rec.inconclusive|join(", ") }}.</p>{% endif %}
+  <p class="muted">Rule: the cheapest candidate whose score is confirmed (95% confidence, Holm-adjusted) to be no more than {{ task.margin }} below the best. "Not significantly different" is never treated as "tied". For classification the tie test is conservative when the models rarely disagree (a discordance guard), so it can ask for more examples rather than declare a tie.</p>
+</div>
+{% else %}
+<div class="card warn">No candidate completed the evaluation, so there is nothing to recommend.</div>
+{% endif %}
+
+<h2>Score versus cost</h2>
+<div class="card">{% if chart %}{{ chart|safe }}{% else %}<p class="muted">No candidate has a usable score and cost to plot.</p>{% endif %}<p class="muted">Bars are 95% bootstrap intervals. Green marks candidates tied with the best. Only included candidates with a score are plotted. Cost is total at {{ task.volume }} predictions, including amortised training.</p></div>
+
+<h2>Candidates</h2>
+<div class="card"><table>
+<tr><th>Candidate</th><th>Status</th><th>{{ task.metric }}</th><th>95% interval</th><th>Cost / 1k</th><th>Total at volume</th><th>p50 / p95 latency</th><th>Invalid</th><th>Errors</th></tr>
+{% for c in rows %}
+<tr><td>{{ c.name }} <span class="tag">{{ c.kind }}</span></td>
+<td>{{ c.status }}{% if c.tied %} (tied){% endif %}{% if c.note %}<br><span class="muted">{{ c.note }}</span>{% endif %}</td>
+<td>{{ c.score }}</td><td>{{ c.ci }}</td><td>{{ c.cost_1k }}</td><td>{{ c.total }}</td><td>{{ c.latency }}</td><td>{{ c.invalid }}</td><td>{{ c.errors }}</td></tr>
+{% endfor %}</table>
+<p class="muted">* price unknown: add the model to pricing.yaml. n/a = not available. Eliminated or excluded candidates are scored only on the examples they completed and are not part of the comparison. Latency is measured on this machine and network, not a provider benchmark.</p></div>
+
+{% if pairwise %}<h2>Pairwise comparisons</h2><div class="card"><table><tr><th>A</th><th>B</th><th>McNemar exact p</th></tr>
+{% for p in pairwise %}<tr><td>{{ p.a }}</td><td>{{ p.b }}</td><td>{{ p.p }}</td></tr>{% endfor %}</table></div>{% endif %}
+
+<h2>Diagnostics</h2>
+<div class="card">
+<p><strong>Suspected labelling mistakes:</strong>
+{% if redact %}<span class="muted">example ids redacted</span>
+{% elif mislabels %}{% for m in mislabels %}{{ m.id }} (labelled "{{ m.label }}", {{ m.pct }}% of candidates disagree){% if not loop.last %}, {% endif %}{% endfor %}
+{% else %}none found{% endif %}</p>
+<p><strong>Examples where candidates disagree:</strong> {{ n_disagree }}{% if redact %} <span class="muted">(ids redacted)</span>{% endif %}</p>
+{% if elimination_log %}<p><strong>Dropped early to save money:</strong></p><ul>{% for e in elimination_log %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+</div>
+
+<h2>Protocol</h2>
+<div class="card muted">{{ task.n_scoring }} scored examples; {{ task.repeats }} LLM repeat(s); ML cross-validation {{ task.cv_folds }} folds x {{ task.cv_repeats }}; few-shot pool {{ task.shots_pool }}. Full details are in manifest.json and predictions.jsonl next to this file.</div>
+</body></html>
