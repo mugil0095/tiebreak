@@ -93,6 +93,18 @@ def _safe_spec(m: ModelSpec) -> dict:
     return d
 
 
+_SECRET_ENV = re.compile(r"(_API_KEY|_TOKEN|_SECRET|_PASSWORD|APIKEY)$", re.I)
+MIN_SECRET_LEN = 8
+
+
+def _collect_secrets(models: list[ModelSpec]) -> list[str]:
+    """Values to scrub from stored errors: the configured api_key_env vars and every credential-looking env var."""
+    out = [os.environ[m.api_key_env] for m in models
+           if m.kind == "llm" and m.api_key_env and os.environ.get(m.api_key_env)]
+    out += [v for k, v in os.environ.items() if _SECRET_ENV.search(k) and len(v) >= MIN_SECRET_LEN]
+    return sorted(set(out))
+
+
 def run_experiment(
     task: TaskConfig, models: list[ModelSpec], dataset: Dataset, run_dir, *,
     pricing: dict | None = None, max_cost: float | None = None, concurrency: int = 4,
@@ -128,9 +140,8 @@ def run_experiment(
     llm_names = [m.name for m in models if m.kind == "llm"]
     cap = CostCap(max_cost)
     if max_cost is not None:  # seed ONCE (the cap is cumulative across resumes); calls must not re-seed it
-        cap.add(sum(r.cost_usd or 0.0 for name in llm_names for r in store.for_candidate(name)))
-    secrets = [os.environ[m.api_key_env] for m in models
-               if m.kind == "llm" and m.api_key_env and os.environ.get(m.api_key_env)]
+        cap.add(sum(store.total_cost(name) for name in llm_names))
+    secrets = _collect_secrets(models)
     factory = completer_factory or (lambda spec: build_completer(spec, task))
 
     split = make_split(dataset, task)

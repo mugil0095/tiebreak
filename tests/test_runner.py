@@ -318,3 +318,24 @@ def test_valid_for_keeps_only_records_matching_key_and_hashes(tmp_path):
 def test_user_price_table_wins_over_provider_reported_cost(tmp_path):
     recs = execute_calls(calls(1), Counting(cost=99.0), PredictionStore(tmp_path / "p.jsonl"), price=(1.0, 2.0), **NO_SLEEP)
     assert recs[0].cost_usd == pytest.approx(100 * 1 / 1000 + 2 * 2 / 1000)  # 100 in, 2 out tokens
+
+
+def test_query_string_keys_are_redacted():
+    out = _scrub("HTTPError 403 for url: https://host/v1/models/x:generate?alt=json&key=AIzaSyDUMMYKEY123456&other=1")
+    assert "AIzaSyDUMMYKEY123456" not in out and "other=1" in out
+    assert "AIzaSy" not in _scrub("GET https://h/p?api_key=AIzaSy-xyz")
+    assert "https://host/path?page=2" in _scrub("see https://host/path?page=2")
+
+
+def test_cost_cap_counts_superseded_spend_after_a_config_change(tmp_path):
+    """I6: spend recorded under an old prompt still counts toward the cap after the prompt changes."""
+    path = tmp_path / "p.jsonl"
+    execute_calls([Call(("m", f"e{i}", 0), f"old{i}", "cfg") for i in range(5)], Counting(cost=0.1), PredictionStore(path), **NO_SLEEP)
+    store = PredictionStore(path)
+    assert store.total_cost("m") == pytest.approx(0.5)
+    new = [Call(("m", f"e{i}", 0), f"new{i}", "cfg") for i in range(5)]  # same keys, new prompt: old records superseded
+    cap = CostCap(0.62)
+    with pytest.raises(CostCapReached):
+        execute_calls(new, Counting(cost=0.1), store, cap=cap, concurrency=1, **NO_SLEEP)
+    assert store.total_cost("m") == pytest.approx(0.5 + 0.2)  # 0.5 old + two new calls before the cap bit
+    assert PredictionStore(path).total_cost("m") == pytest.approx(0.7)

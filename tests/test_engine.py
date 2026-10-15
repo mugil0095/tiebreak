@@ -436,3 +436,50 @@ def test_mock_provider_rejects_regression_with_a_clear_error(tmp_path):
     rtask = TaskConfig(type="regress", label_column="y", text_column="t", repeats=1)
     with pytest.raises(ValueError, match="mock provider supports classification tasks only"):
         run_experiment(rtask, [mock("m", 0.9)], _regress_ds(), tmp_path / "r", **NS)
+
+
+def test_is_hosted_considers_base_url_and_api_base_for_every_provider():
+    spec = lambda **kw: ModelSpec(name="x", kind="llm", model="m", **kw)
+    assert not is_hosted(spec(provider="openai", base_url="http://localhost:8000/v1"))
+    assert not is_hosted(spec(provider="openai", base_url="http://127.0.0.1:8000/v1"))
+    assert not is_hosted(spec(provider="openai", base_url="http://[::1]:8000/v1"))
+    assert is_hosted(spec(provider="openai", base_url="https://proxy.example.com/v1"))
+    assert is_hosted(spec(provider="ollama", params={"api_base": "https://remote.example.com"}))
+    assert not is_hosted(spec(provider="ollama", params={"api_base": "http://localhost:11434"}))
+    assert not is_hosted(spec(provider="ollama"))
+    assert not is_hosted(spec(provider="mock", base_url="https://example.com"))
+    assert is_hosted(spec(provider="anthropic")) and is_hosted(spec(provider="openai"))
+    assert is_hosted(spec(provider="openai_compatible", base_url="https://api.example.com/v1"))
+
+
+def test_remote_ollama_needs_consent(tmp_path):
+    remote = ModelSpec(name="r", kind="llm", provider="ollama", model="x", params={"api_base": "https://remote.example.com"})
+    with pytest.raises(SafetyError, match="yes-send-data"):
+        run_experiment(TASK, [remote], dataset(40), tmp_path / "a", **NS)
+
+
+def test_secrets_from_the_environment_are_scrubbed_even_when_not_in_api_key_env(tmp_path, monkeypatch):
+    """I5: every set *_API_KEY / *_TOKEN / *_SECRET / *_PASSWORD env var is redacted from stored errors."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-envvalue-98765")
+    monkeypatch.setenv("SOME_SERVICE_TOKEN", "tokvalue-abcdef123")
+    monkeypatch.setenv("SHORT_TOKEN", "abc")  # too short to be worth scrubbing
+
+    class Leaky:
+        def complete(self, p):
+            raise ValueError("denied: sk-ant-envvalue-98765 and tokvalue-abcdef123 and abc")
+
+    spec = ModelSpec(name="k", kind="llm", provider="mock", model="k")  # no api_key_env configured
+    run_experiment(TASK, [LR, spec], dataset(20), tmp_path / "r", completer_factory=lambda s: Leaky(), retries=0, **NS)
+    text = (tmp_path / "r" / "predictions.jsonl").read_text()
+    assert "sk-ant-envvalue-98765" not in text and "tokvalue-abcdef123" not in text
+    assert "and abc" in text  # short values are not scrubbed
+
+
+def test_cap_counts_spend_from_before_a_prompt_change(tmp_path):
+    """I6: edit the prompt, resume with a cap: the earlier (superseded) spend still counts."""
+    first = run_experiment(TASK, [mock("a", 0.9, 0.01)], dataset(30), tmp_path / "r", **NS)  # $0.30 spent
+    assert not first.data["incomplete"]
+    edited = ModelSpec(name="a", kind="llm", provider="mock", model="a", prompt="Label {input} as one of {labels}.",
+                       params={"accuracy": 0.9, "cost_per_call": 0.01})
+    res = run_experiment(TASK, [edited], dataset(30), tmp_path / "r", max_cost=0.35, concurrency=1, **NS)
+    assert res.data["incomplete"] is True  # 0.30 old + new calls hits 0.35 long before 30 new calls ($0.30 more)

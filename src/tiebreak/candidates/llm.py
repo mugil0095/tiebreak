@@ -158,7 +158,8 @@ class OpenAICompatCompleter:
 
 
 class LiteLLMCompleter:
-    def __init__(self, provider: str, model: str, params: dict | None = None):
+    def __init__(self, provider: str, model: str, params: dict | None = None,
+                 base_url: str | None = None, api_key_env: str | None = None):
         params = dict(params or {})
         clash = sorted({"temperature", "max_tokens"} & set(params))
         if clash:
@@ -170,12 +171,21 @@ class LiteLLMCompleter:
             raise ImportError("litellm is not installed; run: pip install tiebreak[llm]") from e
         self.litellm, self.params = litellm, params
         self.model_id = f"{provider}/{model}"
+        self.base_url, self.api_key_env = base_url, api_key_env
 
     def complete(self, prompt: str) -> Completion:
+        extra = dict(self.params)
+        if self.base_url:
+            extra["api_base"] = self.base_url
+        if self.api_key_env:
+            key = os.environ.get(self.api_key_env, "")
+            if not key:  # name the variable, never a value
+                raise NonRetryableError(f"environment variable {self.api_key_env} is not set or empty")
+            extra["api_key"] = key
         t0 = time.perf_counter()
         resp = self.litellm.completion(
             model=self.model_id, messages=[{"role": "user", "content": prompt}],
-            temperature=0, max_tokens=64, timeout=self.timeout, **self.params,
+            temperature=0, max_tokens=64, timeout=self.timeout, **extra,
         )
         latency = time.perf_counter() - t0
         try:
@@ -210,7 +220,7 @@ def build_completer(spec: ModelSpec, task: TaskConfig) -> Completer:
         if not spec.base_url:
             raise ValueError(f"candidate '{spec.name}': openai_compatible needs base_url")
         return OpenAICompatCompleter(spec.base_url, spec.model, spec.api_key_env)
-    return LiteLLMCompleter(spec.provider, spec.model, spec.params)
+    return LiteLLMCompleter(spec.provider, spec.model, spec.params, spec.base_url, spec.api_key_env)
 
 
 class LLMCandidate:

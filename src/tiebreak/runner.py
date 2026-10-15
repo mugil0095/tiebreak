@@ -49,6 +49,7 @@ class PredictionStore:
         self.path = Path(path)
         self._lock = threading.Lock()
         self._records: dict[tuple, CallRecord] = {}
+        self._totals: Counter = Counter()  # spend per candidate over EVERY line ever seen, superseded ones included
         self._needs_newline = False
         self.skipped_lines = 0
         if self.path.exists():
@@ -64,6 +65,7 @@ class PredictionStore:
                     self.skipped_lines += 1
                     continue
                 self._records[(rec.candidate, rec.example_id, rec.repeat)] = rec
+                self._totals[rec.candidate] += rec.cost_usd or 0.0
             if self.skipped_lines:
                 log.warning("%s: skipped %d unreadable line(s) (e.g. a run killed mid-write); those calls will be re-run",
                             self.path, self.skipped_lines)
@@ -87,6 +89,12 @@ class PredictionStore:
                 f.write(line.encode("utf-8"))
                 f.flush()
             self._records[(rec.candidate, rec.example_id, rec.repeat)] = rec
+            self._totals[rec.candidate] += rec.cost_usd or 0.0
+
+    def total_cost(self, name: str) -> float:
+        """Everything ever spent on a candidate in this store, including records a config change superseded."""
+        with self._lock:
+            return float(self._totals[name])
 
     def valid_for(self, calls: list[Call]) -> list[CallRecord]:
         """Stored records that answer exactly these calls: same key AND same prompt/config hash.
@@ -109,6 +117,7 @@ _SECRET_PATTERNS = [
     re.compile(r"Incorrect API key provided:\s*\S+", re.I),
     re.compile(r"(?:Bearer|Basic)\s+\S+", re.I),
     re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"),
+    re.compile(r"""(?<=[?&])(?:api_)?key=[^&\s"']+""", re.I),
 ]
 
 
@@ -161,7 +170,7 @@ def execute_calls(
         log.warning("%d cached answers for '%s' were produced with a different prompt/config and were re-run", n, name)
 
     if cap.limit is not None and seed_from_store:  # the cap is cumulative across resumes
-        cap.add(sum(r.cost_usd or 0.0 for name in {c.key[0] for c in calls} for r in store.for_candidate(name)))
+        cap.add(sum(store.total_cost(name) for name in {c.key[0] for c in calls}))
 
     def attempt_call(c: Call):
         last = ""

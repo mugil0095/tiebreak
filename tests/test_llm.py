@@ -177,3 +177,41 @@ def test_one_successful_repeat_is_enough_to_evaluate_an_example():
             CallRecord("m", "e0", 2, "", 0, 0, None, 0.0, "Timeout: x")]
     res = cand.finalize(scoring, recs)
     assert res.mask.all() and res.predictions == ["pos"] and res.n_unanswered == 0
+
+
+def _fake_litellm(monkeypatch):
+    import sys
+    import types
+    seen = {}
+
+    def completion(**kw):
+        seen.clear()
+        seen.update(kw)
+        msg = types.SimpleNamespace(content="pos")
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)],
+                                     usage=types.SimpleNamespace(prompt_tokens=1, completion_tokens=1))
+
+    monkeypatch.setitem(sys.modules, "litellm", types.SimpleNamespace(completion=completion, completion_cost=lambda completion_response: 0.1))
+    return seen
+
+
+def test_litellm_completer_gets_base_url_as_api_base_and_the_key_from_the_env(monkeypatch):
+    """I4: base_url and api_key_env must reach litellm for a non-openai_compatible provider."""
+    seen = _fake_litellm(monkeypatch)
+    monkeypatch.setenv("MY_PROXY_KEY", "proxy-secret-123")
+    spec = ModelSpec(name="m", kind="llm", provider="openai", model="gpt", base_url="http://localhost:8000/v1", api_key_env="MY_PROXY_KEY")
+    build_completer(spec, TASK).complete("hi")
+    assert seen["api_base"] == "http://localhost:8000/v1" and seen["api_key"] == "proxy-secret-123"
+    plain = ModelSpec(name="p", kind="llm", provider="openai", model="gpt")
+    build_completer(plain, TASK).complete("hi")
+    assert "api_base" not in seen and "api_key" not in seen
+
+
+def test_litellm_completer_unset_key_env_is_a_non_retryable_error_naming_the_variable_only(monkeypatch):
+    from tiebreak.candidates.llm import NonRetryableError
+    _fake_litellm(monkeypatch)
+    monkeypatch.delenv("MISSING_KEY_ENV", raising=False)
+    spec = ModelSpec(name="m", kind="llm", provider="openai", model="gpt", api_key_env="MISSING_KEY_ENV")
+    with pytest.raises(NonRetryableError, match="MISSING_KEY_ENV") as ei:
+        build_completer(spec, TASK).complete("hi")
+    assert ei.value.retryable is False
