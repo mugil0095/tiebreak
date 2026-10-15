@@ -313,3 +313,8 @@ def test_valid_for_keeps_only_records_matching_key_and_hashes(tmp_path):
     got = store.valid_for(wanted)
     assert [r.example_id for r in got] == ["e0"] and got[0].repeat == 0
     assert hash_text("p0") == got[0].prompt_hash
+
+
+def test_user_price_table_wins_over_provider_reported_cost(tmp_path):
+    recs = execute_calls(calls(1), Counting(cost=99.0), PredictionStore(tmp_path / "p.jsonl"), price=(1.0, 2.0), **NO_SLEEP)
+    assert recs[0].cost_usd == pytest.approx(100 * 1 / 1000 + 2 * 2 / 1000)  # 100 in, 2 out tokens

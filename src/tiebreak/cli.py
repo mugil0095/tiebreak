@@ -99,7 +99,8 @@ def estimate_cmd(task: Path = typer.Option(..., "--task"), models_path: Path = t
     typer.echo("Estimate only: this never calls any model and sends no data anywhere.")
     for name, n in est.calls.items():
         c = est.cost[name]
-        typer.echo(f"{name}: {n} calls, est. cost " + ("unknown" if c is None else f"${c:.4f}"))
+        src = est.sources.get(name)
+        typer.echo(f"{name}: {n} calls, est. cost " + ("unknown" if c is None else f"${c:.4f}") + (f" ({src})" if src else ""))
     if not est.calls:
         typer.echo("No LLM candidates: nothing to estimate (ML candidates make no paid calls).")
     typer.echo(f"Total estimated cost (priced models only): ${est.total:.4f}")

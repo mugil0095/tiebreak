@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -40,6 +41,27 @@ class NonRetryableError(ValueError):
     """A failure that retrying cannot fix (bad configuration, missing credentials)."""
 
     retryable = False
+
+
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def is_hosted(spec: ModelSpec) -> bool:
+    """True if running this candidate sends example text to a third party. Any base_url / api_base that is
+    not a loopback address means hosted, whatever the provider; mock and an ollama without api_base are local."""
+    if spec.kind != "llm" or spec.provider == "mock":
+        return False
+    url = spec.base_url or spec.params.get("api_base")
+    if url:
+        url = str(url)
+        host = urlparse(url if "://" in url else "//" + url).hostname
+        return host not in LOCAL_HOSTS
+    return spec.provider != "ollama"
+
+
+def is_local(spec: ModelSpec) -> bool:
+    """A real model running on this machine: free per call, but it costs compute time."""
+    return spec.kind == "llm" and spec.provider != "mock" and not is_hosted(spec)
 
 
 def hash_text(text: str) -> str:
@@ -169,7 +191,15 @@ class LiteLLMCompleter:
         )
 
 
+def check_task_support(spec: ModelSpec, task: TaskConfig) -> None:
+    if spec.provider == "mock" and spec.kind == "llm" and task.type not in ("classify", "binary"):
+        raise ValueError(
+            f"candidate '{spec.name}': the mock provider supports classification tasks only (classify, binary), "
+            f"not '{task.type}'")
+
+
 def build_completer(spec: ModelSpec, task: TaskConfig) -> Completer:
+    check_task_support(spec, task)
     if spec.provider == "mock":
         p = spec.params
         return SimulatedCompleter(

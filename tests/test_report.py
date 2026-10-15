@@ -182,3 +182,20 @@ def test_provisional_recommendation_uses_warning_style_and_heading():
     html = render_report(d)
     assert "Provisional choice: logreg" in html and "Recommendation:" not in html
     assert '<div class="card rec">' not in html and "left out of the comparison" in html
+
+
+def test_report_shows_price_source_column_and_prices_used_section():
+    d = copy.deepcopy(DATA)
+    for c, src in zip(d["candidates"], ("compute time", "pricing.yaml", "provider")):
+        c["price_source"] = src
+    d["run_date"] = "2026-10-15"
+    d["prices_used"] = [
+        {"candidate": "big", "model": "big-model", "source": "pricing.yaml", "input_per_1k": 0.003, "output_per_1k": 0.015},
+        {"candidate": "other", "model": "o", "source": "provider"},
+        {"candidate": "loc", "model": "l", "source": "compute time", "compute_price_per_hour": 0.1},
+    ]
+    html = render_report(d)
+    assert "Price source" in html and "pricing.yaml" in html and "compute time" in html
+    assert "Prices used" in html and "2026-10-15" in html and "big-model" in html
+    assert "0.003" in html and "0.015" in html and "per 1k tokens" in html
+    assert "Prices used" not in render_report(DATA)  # older results.json without the field still renders

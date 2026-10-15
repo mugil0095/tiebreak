@@ -17,7 +17,7 @@ import numpy as np
 
 from . import __version__
 from .candidates.base import CandidateResult
-from .candidates.llm import LLMCandidate, build_completer
+from .candidates.llm import LLMCandidate, build_completer, check_task_support, is_hosted, is_local
 from .candidates.ml import MLCandidate
 from .config import ModelSpec, TaskConfig
 from .cost import latency_stats, summarize_cost
@@ -30,7 +30,6 @@ from .recommend import recommend
 from .runner import CostCap, CostCapReached, CostUnknownError, PredictionStore, execute_calls
 from .stats import equivalent_set, mcnemar_exact, paired_bootstrap
 
-LOCAL_PROVIDERS = {"mock", "ollama"}
 HIGH_ERROR_RATE = 0.5
 ELIMINATION_MIN_N = 120  # below this, one round and no early elimination
 ELIMINATION_FIRST_ROUND_MIN = 50
@@ -40,14 +39,6 @@ INVALID_WARN_RATE = 0.05
 
 class SafetyError(RuntimeError):
     """A run was refused to protect the user's data or budget."""
-
-
-def is_hosted(spec: ModelSpec) -> bool:
-    if spec.kind != "llm" or spec.provider in LOCAL_PROVIDERS:
-        return False
-    if spec.provider == "openai_compatible" and spec.base_url:
-        return urlparse(spec.base_url).hostname not in ("localhost", "127.0.0.1", "::1")
-    return True
 
 
 @dataclass
@@ -120,6 +111,8 @@ def run_experiment(
     if task.type == "extract_exact" and any(m.kind == "ml" for m in models):
         raise ValueError("ML candidates do not support extract_exact tasks; use LLM candidates")
 
+    for m in models:
+        check_task_support(m, task)
     names_ = [m.name for m in models]
     if len(set(names_)) != len(names_):
         raise ValueError(f"duplicate candidate names: {sorted({n for n in names_ if names_.count(n) > 1})}")
@@ -129,6 +122,8 @@ def run_experiment(
     (run_dir / "config.snapshot" / "task.json").write_text(task.model_dump_json(indent=2), encoding="utf-8")
     (run_dir / "config.snapshot" / "models.json").write_text(
         json.dumps([_safe_spec(m) for m in models], indent=2), encoding="utf-8")
+    (run_dir / "config.snapshot" / "pricing.json").write_text(
+        json.dumps({k: list(v) for k, v in pricing.items()}, indent=2), encoding="utf-8")
     store = PredictionStore(run_dir / "predictions.jsonl")
     llm_names = [m.name for m in models if m.kind == "llm"]
     cap = CostCap(max_cost)
@@ -159,7 +154,9 @@ def run_experiment(
     # --- LLM candidates, in two rounds so clearly worse ones can be dropped early ---
     llm_specs = [m for m in models if m.kind == "llm"]
     cands = {s.name: LLMCandidate(s, task, factory(s)) for s in llm_specs}
-    prices = {s.name: pricing.get(s.model) for s in llm_specs}
+    local_names = {s.name for s in llm_specs if is_local(s)}
+    # user pricing.yaml wins (never for local models, which are costed by compute time); local calls cost 0 per call
+    prices = {s.name: (0.0, 0.0) if s.name in local_names else pricing.get(s.model) for s in llm_specs}
     if n >= ELIMINATION_MIN_N:
         first = max(ELIMINATION_FIRST_ROUND_MIN, n // 3)
     else:
@@ -211,6 +208,7 @@ def run_experiment(
     for name, cand in cands.items():
         res = cand.finalize(scoring, valid_records(name))
         res.eliminated = name not in active
+        res.local_compute = name in local_names
         results[name] = res
 
     # --- decide which candidates take part in the comparison ---
@@ -242,7 +240,8 @@ def run_experiment(
     y_enc, enc = encode_labels(task, scoring.y, {k: results[k].predictions for k in included})
     boot = rec = None
     equiv: dict[str, bool] = {}
-    costs = {name: summarize_cost(res, task) for name, res in results.items()}
+    costs = {name: summarize_cost(res, task, price=None if res.local_compute else prices.get(name))
+             for name, res in results.items()}
     if included:
         boot = paired_bootstrap(y_enc, enc, metric.fn, n_boot=n_boot, seed=task.seed)
         equiv = equivalent_set(boot, task.margin, alpha=ALPHA, guard=metric.classification)
@@ -282,6 +281,19 @@ def run_experiment(
     if simulated:
         warnings.insert(0, "SIMULATED: 'mock' candidates are fake models with preset accuracy. Do not use these results to choose a real model.")
 
+    spec_by_name = {m.name: m for m in models}
+    prices_used = []
+    for name, res in results.items():
+        src = costs[name].price_source
+        if res.kind != "llm" or src == "unknown":
+            continue
+        entry = {"candidate": name, "model": spec_by_name[name].model, "source": src}
+        if src == "pricing.yaml":
+            entry.update(input_per_1k=prices[name][0], output_per_1k=prices[name][1])
+        elif src == "compute time":
+            entry.update(compute_price_per_hour=task.compute_price_per_hour)
+        prices_used.append(entry)
+
     cand_rows = []
     for name, res in results.items():
         p50, p95 = latency_stats(res.latencies)
@@ -303,6 +315,7 @@ def run_experiment(
             "name": name, "kind": res.kind, "status": status[name], "note": notes.get(name, ""),
             "score": score, "ci_lo": lo, "ci_hi": hi,
             "cost_per_1k": c.per_1k, "total_cost_at_volume": c.total_at_volume, "price_known": c.price_known,
+            "price_source": c.price_source,
             "p50_latency_s": p50, "p95_latency_s": p95, "invalid_rate": res.invalid_rate,
             "error_rate": res.error_rate, "repeat_disagreement": res.repeat_disagreement,
             "equivalent": bool(equiv.get(name, False)),
@@ -319,6 +332,7 @@ def run_experiment(
         "diagnostics": {"mislabels": mis, "disagreement_ids": dis, "class_balance": balance},
         "pairwise": pairwise, "warnings": warnings, "incomplete": incomplete,
         "simulated": simulated, "elimination_log": elimination_log,
+        "run_date": datetime.now(timezone.utc).date().isoformat(), "prices_used": prices_used,
     }
     data = _clean(data)
     (run_dir / "results.json").write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
@@ -327,6 +341,6 @@ def run_experiment(
         "created_utc": datetime.now(timezone.utc).isoformat(), "data_hash": _hash_dataset(scoring),
         "seed": task.seed, "n_boot": n_boot,
         "models": [{"name": m.name, "kind": m.kind, "provider": m.provider, "model": m.model} for m in models],
-        "prices_used": {k: list(v) for k, v in pricing.items()},
+        "prices_used": {u["model"]: [u["input_per_1k"], u["output_per_1k"]] for u in prices_used if u["source"] == "pricing.yaml"},
     }, indent=2), encoding="utf-8")
     return ExperimentResult(run_dir, data)

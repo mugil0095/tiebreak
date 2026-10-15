@@ -210,3 +210,11 @@ def test_provisional_is_said_in_first_line(capsys):
     _print_summary(d, "r.html")
     first = capsys.readouterr().out.splitlines()[0]
     assert "PROVISIONAL" in first and "(recommended)" not in first and "w" in first
+
+
+def test_estimate_shows_simulated_cost_and_source_for_mock_models(tmp_path):
+    work = _demo(tmp_path, "w")
+    r = runner.invoke(app, ["estimate", "--task", str(work / "task.yaml"), "--models", str(work / "models.yaml"),
+                            "--data", str(work / "data.csv")])
+    line = next(ln for ln in r.output.splitlines() if ln.startswith("sim-large"))
+    assert "(simulated)" in line and "unknown" not in line and "$3.0000" in line  # 300 calls x $0.01

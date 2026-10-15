@@ -333,6 +333,10 @@ def test_early_elimination_alone_does_not_make_the_run_provisional(tmp_path):
     assert res.data["recommendation"]["status"] != "provisional"
 
 
+def _ollama(name):
+    return ModelSpec(name=name, kind="llm", provider="ollama", model=name)
+
+
 def _regress_ds(n=60):
     rng = np.random.default_rng(3)
     x = rng.uniform(0, 10, n)
@@ -355,7 +359,7 @@ def test_regression_abstainer_cannot_beat_a_real_model(tmp_path):
     """C2: invalid answers are scored as maximally wrong, not filled with the gold mean."""
     rtask = TaskConfig(type="regress", label_column="y", text_column="t", repeats=1)
     factory = lambda spec: _Numeric("I cannot answer") if spec.name == "abstain" else _Numeric(noise=8.0)
-    res = run_experiment(rtask, [mock("abstain", 0.5), mock("real", 0.5)], _regress_ds(), tmp_path / "r",
+    res = run_experiment(rtask, [_ollama("abstain"), _ollama("real")], _regress_ds(), tmp_path / "r",
                          completer_factory=factory, **NS)
     rows = {c["name"]: c for c in res.data["candidates"]}
     assert rows["abstain"]["invalid_rate"] == 1.0
@@ -380,3 +384,55 @@ def test_classification_invalid_answers_above_five_percent_warn(tmp_path):
                          completer_factory=lambda s: Chatty(0.9, TASK.labels) if s.name == "chatty" else SimulatedCompleter(0.9, TASK.labels), **NS)
     ws = [w for w in res.data["warnings"] if "could not be parsed" in w]
     assert len(ws) == 1 and ws[0].startswith("chatty: ") and "scored as maximally wrong" in ws[0]
+
+
+def _fixed_latency(latency, tin=100, tout=2, cost=None):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    class Fixed(SimulatedCompleter):
+        def complete(self, p):
+            c = super().complete(p)
+            return Completion(c.text, tin, tout, cost, latency)
+    return lambda spec: Fixed(0.9, TASK.labels)
+
+
+def test_price_source_is_recorded_and_pricing_yaml_wins_over_provider_cost(tmp_path):
+    models = [mock("priced", 0.9, 0.5), mock("provider", 0.9, 0.5)]
+    pricing = {"priced": (0.1, 0.2)}
+    res = run_experiment(TASK, models + [LR], dataset(40), tmp_path / "r", pricing=pricing, **NS)
+    rows = {c["name"]: c for c in res.data["candidates"]}
+    assert rows["priced"]["price_source"] == "pricing.yaml" and rows["provider"]["price_source"] == "provider"
+    assert rows["logreg"]["price_source"] == "compute time"
+    # priced: tokens x user price, not the 0.5/call the (mock) provider reported
+    assert rows["priced"]["cost_per_1k"] < rows["provider"]["cost_per_1k"] / 100
+    assert json.loads((tmp_path / "r" / "results.json").read_text())["candidates"][0]["price_source"]
+
+
+def test_pricing_snapshot_and_manifest_list_only_prices_actually_used(tmp_path):
+    pricing = {"priced": (0.1, 0.2), "never-run-model": (9.0, 9.0)}
+    res = run_experiment(TASK, [mock("priced", 0.9), mock("provider", 0.9)], dataset(40), tmp_path / "r", pricing=pricing, **NS)
+    snap = json.loads((tmp_path / "r" / "config.snapshot" / "pricing.json").read_text())
+    assert snap == {"priced": [0.1, 0.2], "never-run-model": [9.0, 9.0]}
+    man = json.loads((tmp_path / "r" / "manifest.json").read_text())
+    assert man["prices_used"] == {"priced": [0.1, 0.2]}
+    used = res.data["prices_used"]
+    assert [u["candidate"] for u in used if u["source"] == "pricing.yaml"] == ["priced"]
+    assert used[0]["input_per_1k"] == 0.1 and used[0]["output_per_1k"] == 0.2 and res.data["run_date"]
+    assert {u["candidate"]: u["source"] for u in used}["provider"] == "provider"
+
+
+def test_local_llm_is_costed_by_compute_time_not_zero(tmp_path):
+    local = ModelSpec(name="loc", kind="llm", provider="ollama", model="tag")
+    task = TASK.model_copy(update={"compute_price_per_hour": 3.6})  # 0.001 $/s
+    res = run_experiment(task, [local, mock("m", 0.9)], dataset(40), tmp_path / "r",
+                         completer_factory=lambda s: _fixed_latency(2.0, cost=0.001)(s), max_cost=5.0, **NS)
+    row = next(c for c in res.data["candidates"] if c["name"] == "loc")
+    assert row["price_source"] == "compute time" and row["price_known"] is True
+    assert row["cost_per_1k"] == pytest.approx(2.0)  # 2 s x 0.001 $/s x 1000
+    assert row["total_cost_at_volume"] == pytest.approx(20.0)
+
+
+def test_mock_provider_rejects_regression_with_a_clear_error(tmp_path):
+    rtask = TaskConfig(type="regress", label_column="y", text_column="t", repeats=1)
+    with pytest.raises(ValueError, match="mock provider supports classification tasks only"):
+        run_experiment(rtask, [mock("m", 0.9)], _regress_ds(), tmp_path / "r", **NS)

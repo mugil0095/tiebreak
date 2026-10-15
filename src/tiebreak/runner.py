@@ -186,7 +186,8 @@ def execute_calls(
                 rec = CallRecord(c.key[0], c.key[1], c.key[2], "", 0, 0, None, 0.0, err, ph, c.config_hash)
                 store.add(rec)
                 return i, rec
-            cost = comp.cost_usd if comp.cost_usd is not None else _price_cost(price, comp.tokens_in, comp.tokens_out)
+            # the user's pricing.yaml wins; the provider-reported cost is the fallback
+            cost = _price_cost(price, comp.tokens_in, comp.tokens_out) if price is not None else comp.cost_usd
             rec = CallRecord(c.key[0], c.key[1], c.key[2], comp.text, comp.tokens_in,
                              comp.tokens_out, cost, comp.latency_s, None, ph, c.config_hash)
             cap.add(cost)

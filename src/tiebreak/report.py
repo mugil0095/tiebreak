@@ -28,9 +28,17 @@ def _row(c: dict) -> dict:
         "tied": bool(c.get("equivalent")) and c.get("status") == "included", "note": c.get("note") or "",
         "score": _f(c.get("score"), ".3f"), "ci": ci,
         "cost_1k": cost1k + (star if cost1k != NA else ""), "total": total + (star if total != NA else ""),
-        "latency": lat, "invalid": NA if not _num(c.get("invalid_rate")) else f"{c['invalid_rate'] * 100:.1f}%",
+        "price_source": c.get("price_source") or NA, "latency": lat, "invalid": NA if not _num(c.get("invalid_rate")) else f"{c['invalid_rate'] * 100:.1f}%",
         "errors": NA if not _num(c.get("error_rate")) else f"{c['error_rate'] * 100:.1f}%",
     }
+
+
+def _price_text(u: dict) -> str:
+    if u.get("source") == "pricing.yaml":
+        return f"${u.get('input_per_1k')} in / ${u.get('output_per_1k')} out per 1k tokens"
+    if u.get("source") == "compute time":
+        return f"${u.get('compute_price_per_hour')} per compute hour"
+    return "reported by the provider per call"
 
 
 def render_report(data: dict, redact: bool = False) -> str:
@@ -45,10 +53,13 @@ def render_report(data: dict, redact: bool = False) -> str:
     mislabels = [{"id": m.get("id"), "label": m.get("label"),
                   "pct": f"{(m.get('disagree_fraction') or 0) * 100:.0f}"} for m in diag.get("mislabels") or []]
     pairwise = [{"a": p.get("a"), "b": p.get("b"), "p": _f(p.get("mcnemar_p"), ".4f")} for p in data.get("pairwise") or []]
+    prices_used = [{"candidate": u.get("candidate", ""), "model": u.get("model", ""), "source": u.get("source", ""),
+                    "price": _price_text(u)} for u in data.get("prices_used") or []]
     return _env.get_template("report.html.j2").render(
         d=data, task=data.get("task") or {}, rec=rec, rows=[_row(c) for c in data.get("candidates", [])],
         chart=frontier_svg(points), redact=redact, mislabels=mislabels, pairwise=pairwise,
         n_disagree=len(diag.get("disagreement_ids") or []),
+        prices_used=prices_used, run_date=data.get("run_date") or NA,
         warnings=data.get("warnings") or [], elimination_log=data.get("elimination_log") or [],
     )
 

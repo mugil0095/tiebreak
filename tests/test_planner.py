@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import pandas as pd
 
@@ -75,3 +76,34 @@ def test_estimate_notes_partial_total():
     ds = Dataset(["e0"], pd.DataFrame({"t": ["x"]}), np.array(["a"], dtype=object), ["x"])
     est = estimate(task, [ModelSpec(name="u", kind="llm", provider="p", model="m2")], Split(ds, None), {})
     assert any("priced models only" in n for n in est.notes)
+
+
+def _est_task():
+    task = TaskConfig(type="classify", label_column="s", text_column="t", labels=["a", "b"], repeats=2)
+    ds = Dataset(["e0", "e1", "e2"], pd.DataFrame({"t": ["x" * 40] * 3}), np.array(["a", "b", "a"], dtype=object), ["x" * 40] * 3)
+    return task, Split(ds, None)
+
+
+def test_estimate_prices_mock_models_by_cost_per_call_and_local_models_are_not_unknown():
+    """M5/I3: simulated cost for mock models; local models are costed from compute time during the run."""
+    task, split = _est_task()
+    models = [ModelSpec(name="sim", kind="llm", provider="mock", model="sim", params={"cost_per_call": 0.01}),
+              ModelSpec(name="loc", kind="llm", provider="ollama", model="tag")]
+    est = estimate(task, models, split, {})
+    assert est.cost["sim"] == pytest.approx(0.06) and est.total == pytest.approx(0.06)
+    assert est.cost["loc"] is None and any("loc" in n and "compute" in n for n in est.notes)
+    assert not any("no price known" in n for n in est.notes)
+    assert est.sources == {"sim": "simulated", "loc": "compute time"}
+
+
+def test_estimate_precedence_pricing_yaml_then_litellm_then_unknown(monkeypatch):
+    import sys
+    import types
+    table = {"p/m1": {"input_cost_per_token": 1e-6, "output_cost_per_token": 1e-6},
+             "p/m2": {"input_cost_per_token": 2e-6, "output_cost_per_token": 2e-6}}
+    monkeypatch.setitem(sys.modules, "litellm", types.SimpleNamespace(model_cost=table))
+    task, split = _est_task()
+    models = [ModelSpec(name=n, kind="llm", provider="p", model=m) for n, m in (("a", "m1"), ("b", "m2"), ("c", "m3"))]
+    est = estimate(task, models, split, {"m1": (10.0, 10.0)})
+    assert est.sources == {"a": "pricing.yaml", "b": "litellm", "c": "unknown"}
+    assert est.cost["a"] > est.cost["b"] > 0 and est.cost["c"] is None

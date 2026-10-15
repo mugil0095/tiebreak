@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .candidates.llm import LLMCandidate
+from .candidates.llm import LLMCandidate, check_task_support, is_local
 from .config import ModelSpec, TaskConfig
+from .cost import litellm_price
 from .protocol import Split
 from .stats import clearly_worse_p, discordance_counts, paired_bootstrap
 
@@ -16,6 +17,7 @@ class Estimate:
     cost: dict[str, float | None]
     total: float
     notes: list[str] = field(default_factory=list)
+    sources: dict[str, str] = field(default_factory=dict)  # price source per candidate
 
 
 class _Null:
@@ -24,26 +26,38 @@ class _Null:
 
 
 def estimate(task: TaskConfig, models: list[ModelSpec], split: Split, pricing: dict) -> Estimate:
-    calls, cost, notes, unpriced = {}, {}, [], False
+    calls, cost, notes, sources, unpriced = {}, {}, [], {}, False
     for spec in models:
         if spec.kind != "llm":
             continue
+        check_task_support(spec, task)
         cand = LLMCandidate(spec, task, _Null())
         built = cand.build_calls(split.scoring, split.shots)
         calls[spec.name] = len(built)
         price = pricing.get(spec.model)
-        if price is None:
-            cost[spec.name] = None
-            if spec.provider != "mock":
-                unpriced = True
-                notes.append(f"{spec.name}: no price known for model '{spec.model}'; add it to pricing.yaml for a cost estimate")
+        source = "pricing.yaml"
+        if price is None and spec.provider == "mock":
+            cost[spec.name] = float(spec.params.get("cost_per_call", 0.0005)) * len(built)
+            sources[spec.name] = "simulated"
             continue
+        if price is None and is_local(spec):
+            cost[spec.name], sources[spec.name] = None, "compute time"
+            notes.append(f"{spec.name}: local model; its cost is measured from latency x compute price during the run")
+            continue
+        if price is None:
+            price, source = litellm_price(spec), "litellm"
+        if price is None:
+            cost[spec.name], sources[spec.name] = None, "unknown"
+            unpriced = True
+            notes.append(f"{spec.name}: no price known for model '{spec.model}'; add it to pricing.yaml for a cost estimate")
+            continue
+        sources[spec.name] = source
         tokens_in = sum(len(c.prompt) // 4 for c in built)
         cost[spec.name] = tokens_in / 1000 * price[0] + len(built) * OUTPUT_TOKENS / 1000 * price[1]
     if unpriced:
         notes.append("Total covers priced models only.")
     total = float(sum(v for v in cost.values() if v is not None))
-    return Estimate(calls, cost, total, notes)
+    return Estimate(calls, cost, total, notes, sources)
 
 
 def clearly_worse(y_enc, preds_enc: dict, metric_fn, margin: float, eligible: set[str],
