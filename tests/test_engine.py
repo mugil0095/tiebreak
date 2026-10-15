@@ -331,3 +331,52 @@ def test_early_elimination_alone_does_not_make_the_run_provisional(tmp_path):
                          completer_factory=factory, **NS)
     assert next(c for c in res.data["candidates"] if c["name"] == "bad")["status"] == "eliminated"
     assert res.data["recommendation"]["status"] != "provisional"
+
+
+def _regress_ds(n=60):
+    rng = np.random.default_rng(3)
+    x = rng.uniform(0, 10, n)
+    y = np.round(x * 2 + rng.normal(0, 1, n), 2)
+    return Dataset([f"e{i}" for i in range(n)], pd.DataFrame({"t": [f"x={v:.3f}" for v in x]}), y.astype(object), [f"x={v:.3f}" for v in x])
+
+
+class _Numeric:
+    def __init__(self, text=None, noise=0.0, seed=0):
+        self.text, self.noise, self.truth, self.rng = text, noise, {}, np.random.default_rng(seed)
+
+    def prime(self, m): self.truth.update(m)
+
+    def complete(self, p):
+        out = self.text if self.text is not None else str(float(self.truth[p]) + self.rng.normal(0, self.noise))
+        return Completion(out, 10, 2, 0.001, 0.1)
+
+
+def test_regression_abstainer_cannot_beat_a_real_model(tmp_path):
+    """C2: invalid answers are scored as maximally wrong, not filled with the gold mean."""
+    rtask = TaskConfig(type="regress", label_column="y", text_column="t", repeats=1)
+    factory = lambda spec: _Numeric("I cannot answer") if spec.name == "abstain" else _Numeric(noise=8.0)
+    res = run_experiment(rtask, [mock("abstain", 0.5), mock("real", 0.5)], _regress_ds(), tmp_path / "r",
+                         completer_factory=factory, **NS)
+    rows = {c["name"]: c for c in res.data["candidates"]}
+    assert rows["abstain"]["invalid_rate"] == 1.0
+    assert rows["abstain"]["score"] < rows["real"]["score"]
+    assert res.data["recommendation"]["winner"] == "real"
+    assert any(w.startswith("abstain: 100% of answers could not be parsed and are scored as maximally wrong")
+               for w in res.data["warnings"])
+    assert not any(w.startswith("real:") and "parsed" in w for w in res.data["warnings"])
+
+
+def test_classification_invalid_answers_above_five_percent_warn(tmp_path):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    class Chatty(SimulatedCompleter):
+        def complete(self, p):
+            c = super().complete(p)
+            if sum(map(ord, p)) % 4 == 0:
+                c.text = "hmm hard to say"
+            return c
+
+    res = run_experiment(TASK, [mock("chatty", 0.9), mock("fine", 0.9)], dataset(80), tmp_path / "r",
+                         completer_factory=lambda s: Chatty(0.9, TASK.labels) if s.name == "chatty" else SimulatedCompleter(0.9, TASK.labels), **NS)
+    ws = [w for w in res.data["warnings"] if "could not be parsed" in w]
+    assert len(ws) == 1 and ws[0].startswith("chatty: ") and "scored as maximally wrong" in ws[0]

@@ -35,6 +35,7 @@ HIGH_ERROR_RATE = 0.5
 ELIMINATION_MIN_N = 120  # below this, one round and no early elimination
 ELIMINATION_FIRST_ROUND_MIN = 50
 ALPHA = 0.05
+INVALID_WARN_RATE = 0.05
 
 
 class SafetyError(RuntimeError):
@@ -233,6 +234,9 @@ def run_experiment(
                 notes[name] = "incomplete evaluation"
         else:
             status[name] = "included"
+    for name, res in results.items():
+        if res.invalid_rate > INVALID_WARN_RATE:
+            warnings.append(f"{name}: {res.invalid_rate:.0%} of answers could not be parsed and are scored as maximally wrong")
     included = [n_ for n_ in results if status[n_] == "included"]
 
     y_enc, enc = encode_labels(task, scoring.y, {k: results[k].predictions for k in included})

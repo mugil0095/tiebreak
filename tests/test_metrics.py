@@ -56,10 +56,13 @@ def test_encode_extract_exact_normalises_text():
     assert list(enc["m"]) == [list(y)[0], -1]
 
 
-def test_encode_regression_fills_missing_with_mean():
+def test_encode_regression_penalises_missing_with_the_farthest_end_of_the_gold_range():
+    """C2: a missing prediction is never helped by gold information (the mean); it gets the worst end of the range."""
     task = TaskConfig(type="regress", label_column="y")
-    y, enc = encode_labels(task, np.array([1.0, 3.0]), {"m": [2.0, None]})
-    assert list(enc["m"]) == [2.0, 2.0]
+    y, enc = encode_labels(task, np.array([1.0, 3.0, 2.0, 10.0]), {"m": [2.0, None, None, None]})
+    assert list(enc["m"]) == [2.0, 10.0, 10.0, 1.0]  # gold 3 -> 10, 2 -> 10, 10 -> 1
+    _, enc2 = encode_labels(task, np.array([5.0, 5.0]), {"m": [None, 5.0]})
+    assert list(enc2["m"]) == [5.0, 5.0]  # constant gold range: nothing worse to pick
 
 
 def test_unknown_gold_label_raises():
@@ -88,4 +91,4 @@ def test_nan_and_na_predictions_are_invalid():
 def test_regression_np_float32_nan_is_missing():
     task = TaskConfig(type="regress", label_column="y")
     y, enc = encode_labels(task, np.array([1.0, 3.0]), {"m": [np.float32("nan"), 4.0]})
-    assert list(enc["m"]) == [2.0, 4.0]
+    assert list(enc["m"]) == [3.0, 4.0]  # gold 1.0: the farthest end of [1, 3] is 3

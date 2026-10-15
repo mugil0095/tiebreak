@@ -72,15 +72,18 @@ def encode_labels(task: TaskConfig, y, preds_by_name: dict):
     """Return (y_enc, {name: enc}) ready for the metric functions.
 
     Classification: int64 codes, -1 for invalid or missing predictions.
-    Regression: floats; missing predictions are replaced by the mean of y.
+    Regression: floats; a missing prediction is replaced by the end of the gold range farthest from
+    that example's gold value (maximally wrong, never helped by gold information).
     Classification raises ValueError if a gold label is not in task.labels.
     """
     if task.type == "regress":
         yf = np.asarray(y, dtype=float)
-        fill = float(yf.mean())
+        lo, hi = float(yf.min()), float(yf.max())
+        # worst case: the end of the observed gold range FARTHEST from each example's gold value
+        worst = np.where(np.abs(lo - yf) > np.abs(hi - yf), lo, hi)
 
         def enc_r(values):
-            out = [fill if _missing(v) else float(v) for v in values]
+            out = [worst[i] if _missing(v) else float(v) for i, v in enumerate(values)]
             return np.array(out, dtype=float)
 
         return yf, {n: enc_r(p) for n, p in preds_by_name.items()}
