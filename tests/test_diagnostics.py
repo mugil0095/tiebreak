@@ -37,3 +37,24 @@ def test_sample_warnings():
     assert sample_warnings(500, 0.02, {"a": 250, "b": 250}, {"m": 0.01}) == [
         "Make sure this sample resembles the data you will see in production; results only hold for similar data."
     ]
+
+
+def test_two_votes_are_enough_to_flag():
+    y = np.array([0])
+    assert [o["id"] for o in suspected_mislabels(["a"], y, {"a": np.array([1]), "b": np.array([1])})] == ["a"]
+
+
+def test_invalid_vote_mixed_with_valid_votes():
+    y = np.array([0])
+    preds = {"a": np.array([-1]), "b": np.array([1]), "c": np.array([1])}
+    assert suspected_mislabels(["a"], y, preds)[0]["disagree_fraction"] == 1.0
+    assert suspected_mislabels(["a"], y, {"a": np.array([-1]), "b": np.array([1])}) == []
+
+
+def test_disagreements_empty_and_invalid_is_distinct():
+    assert disagreements(["x"], {}) == []
+    assert disagreements(["x"], {"a": np.array([-1]), "b": np.array([0])}) == ["x"]
+
+
+def test_sample_warnings_zero_count_class():
+    assert any("imbalanced" in w for w in sample_warnings(500, 0.02, {"a": 500, "b": 0}, {}))
