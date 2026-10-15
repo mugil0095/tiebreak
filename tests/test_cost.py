@@ -41,3 +41,12 @@ def test_ml_cost_uses_compute_price_and_amortises_training():
 def test_latency_stats():
     assert latency_stats([0.1, 0.2, 0.3, 0.4, 1.0]) == (pytest.approx(0.3), pytest.approx(0.88))
     assert latency_stats([]) == (0.0, 0.0)
+
+
+def test_price_known_ignores_failed_calls():
+    """C1: failed calls carry no cost; only successful calls decide whether the price is known."""
+    err = CallRecord("m", "e", 1, "", 0, 0, None, 0.0, "Timeout: x")
+    r = CandidateResult("m", "llm", [], calls=[call(0.01), err, call(0.03)])
+    s = summarize_cost(r, TASK)
+    assert s.price_known and s.per_prediction == pytest.approx(0.02)
+    assert not summarize_cost(CandidateResult("m", "llm", [], calls=[err]), TASK).price_known

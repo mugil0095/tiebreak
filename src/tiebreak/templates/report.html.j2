@@ -17,9 +17,9 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 
 {% if rec %}
 <div class="card {% if rec.status == "recommended" %}rec{% else %}warn{% endif %}">
-  <strong>{% if rec.status == "recommended" %}Recommendation: {{ rec.winner }}{% else %}Safe choice: {{ rec.winner }} (cannot separate cheaper options yet){% endif %}</strong>
+  <strong>{% if rec.status == "recommended" %}Recommendation: {{ rec.winner }}{% elif rec.status == "provisional" %}Provisional choice: {{ rec.winner }} (not final){% else %}Safe choice: {{ rec.winner }} (cannot separate cheaper options yet){% endif %}</strong>
   <p>{{ rec.reason }}</p>
-  {% if rec.status != "recommended" %}<p>Not enough data to tell some cheaper candidates from the best: {{ rec.inconclusive|join(", ") }}.</p>{% endif %}
+  {% if rec.status == "inconclusive" %}<p>Not enough data to tell some cheaper candidates from the best: {{ rec.inconclusive|join(", ") }}.</p>{% endif %}
   <p class="muted">Rule: the cheapest candidate whose score is confirmed (95% confidence, Holm-adjusted) to be no more than {{ task.margin }} below the best. "Not significantly different" is never treated as "tied". For classification the tie test is conservative when the models rarely disagree (a discordance guard), so it can ask for more examples rather than declare a tie.</p>
 </div>
 {% else %}

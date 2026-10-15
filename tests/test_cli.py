@@ -202,3 +202,11 @@ def test_help_works():
         r = runner.invoke(app, args)
         assert r.exit_code == 0, (args, r.output)
     assert "--models" in runner.invoke(app, ["run", "--help"]).output
+
+
+def test_provisional_is_said_in_first_line(capsys):
+    d = _data(False)
+    d["recommendation"].update(status="provisional", reason="Provisional: left out: big (incomplete: provider errors). w is best.")
+    _print_summary(d, "r.html")
+    first = capsys.readouterr().out.splitlines()[0]
+    assert "PROVISIONAL" in first and "(recommended)" not in first and "w" in first

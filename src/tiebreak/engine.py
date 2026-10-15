@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -222,8 +223,14 @@ def run_experiment(
             status[name] = "eliminated"
         elif res.kind == "llm" and (res.mask is None or not res.mask.all()):
             status[name] = "excluded"
-            warnings.append(f"{name}: not all examples were evaluated; excluded from the comparison")
-            notes[name] = "incomplete evaluation"
+            if res.n_unanswered:
+                missing = n - int(res.mask.sum()) if res.mask is not None else n
+                warnings.append(f"{name}: {missing} of {n} examples have no successful answer (provider errors); "
+                                "re-run with --resume to retry them")
+                notes[name] = "incomplete: provider errors"
+            else:
+                warnings.append(f"{name}: not all examples were evaluated; excluded from the comparison")
+                notes[name] = "incomplete evaluation"
         else:
             status[name] = "included"
     included = [n_ for n_ in results if status[n_] == "included"]
@@ -239,6 +246,14 @@ def run_experiment(
                         task.margin, alpha=ALPHA, guard=metric.classification)
     else:
         warnings.append("No candidate completed the evaluation; there is nothing to recommend.")
+    left_out = [(k, notes.get(k, "excluded")) for k in results if status[k] == "excluded"]
+    if rec is not None and (incomplete or left_out):
+        why = []
+        if incomplete:
+            why.append("the run is incomplete (cost cap reached)")
+        if left_out:
+            why.append("left out of the comparison: " + ", ".join(f"{k} ({v})" for k, v in left_out))
+        rec = dataclasses.replace(rec, status="provisional", reason="Provisional: " + "; ".join(why) + ". " + rec.reason)
 
     # --- diagnostics ---
     if task.type in ("classify", "binary"):

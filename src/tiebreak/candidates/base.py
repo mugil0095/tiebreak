@@ -36,6 +36,8 @@ class CandidateResult:
     eliminated: bool = False
     mask: np.ndarray | None = None
     notes: list[str] = field(default_factory=list)
+    n_unanswered: int = 0  # examples whose every call failed (no successful answer)
+    local_compute: bool = False  # local model: costed from latency x compute price, not per call
 
 
 def aggregate(votes: list, classification: bool):

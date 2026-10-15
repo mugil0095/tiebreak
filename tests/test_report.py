@@ -174,3 +174,11 @@ def test_report_from_a_real_engine_run(tmp_path):
     ids = res.data["diagnostics"]["disagreement_ids"] + [m["id"] for m in res.data["diagnostics"]["mislabels"]]
     for eid in ids:
         assert not re.search(rf"(?<![\w-]){re.escape(eid)}(?![\w-])", redacted), eid
+
+
+def test_provisional_recommendation_uses_warning_style_and_heading():
+    d = copy.deepcopy(DATA)
+    d["recommendation"].update(status="provisional", reason="Provisional: left out of the comparison: big (incomplete: provider errors). x")
+    html = render_report(d)
+    assert "Provisional choice: logreg" in html and "Recommendation:" not in html
+    assert '<div class="card rec">' not in html and "left out of the comparison" in html

@@ -257,3 +257,77 @@ def test_snapshot_never_contains_secrets(tmp_path):
 def test_fewer_than_two_scoring_examples_is_a_clear_error(tmp_path):
     with pytest.raises(ValueError, match="at least 2"):
         run_experiment(TASK, [mock("m", 0.9)], dataset(1), tmp_path / "r", **NS)
+
+
+class _Flaky:
+    """Wraps a simulated model; a deterministic share of prompts always fails (transient provider errors)."""
+
+    def __init__(self, inner, rate, fail=True):
+        self.inner, self.rate, self.fail = inner, rate, fail
+
+    def prime(self, m): self.inner.prime(m)
+
+    def complete(self, p):
+        h = int.from_bytes(__import__("hashlib").sha256(("flaky" + p).encode()).digest()[:4], "big") / 2**32
+        if self.fail and h < self.rate:
+            raise TimeoutError("503 service unavailable")
+        return self.inner.complete(p)
+
+
+def _flaky_factory(rate, fail=True):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    def factory(spec):
+        acc = {"best": 0.97, "ok": 0.75}[spec.name]
+        inner = SimulatedCompleter(acc, TASK.labels, cost_per_call=0.01 if spec.name == "best" else 0.001)
+        return _Flaky(inner, rate, fail) if spec.name == "best" else inner
+    return factory
+
+
+def test_transient_errors_below_half_exclude_the_candidate_instead_of_scoring_them_wrong(tmp_path):
+    """C1: 0.97 model with ~31% provider errors must not be scored as a 0.67 model and silently lose."""
+    res = run_experiment(TASK, [mock("best", 0.97), mock("ok", 0.75)], dataset(100), tmp_path / "r",
+                         completer_factory=_flaky_factory(0.31), retries=0, **NS)
+    best = next(c for c in res.data["candidates"] if c["name"] == "best")
+    assert 0.15 < best["error_rate"] < 0.5
+    assert best["status"] == "excluded" and best["note"].startswith("incomplete: provider errors")
+    assert any(w.startswith("best: ") and "have no successful answer (provider errors)" in w and "--resume" in w
+               for w in res.data["warnings"])
+    rec = res.data["recommendation"]
+    assert rec["status"] == "provisional" and "best" in rec["reason"] and "provider errors" in rec["reason"]
+
+
+def test_no_errors_is_unchanged_and_resume_completes_an_incomplete_candidate(tmp_path):
+    clean = run_experiment(TASK, [mock("best", 0.97), mock("ok", 0.75)], dataset(100), tmp_path / "c",
+                           completer_factory=_flaky_factory(0.0), retries=0, **NS)
+    assert {c["status"] for c in clean.data["candidates"]} <= {"included", "eliminated"}
+    assert clean.data["recommendation"]["status"] != "provisional"
+    run_experiment(TASK, [mock("best", 0.97), mock("ok", 0.75)], dataset(100), tmp_path / "r",
+                   completer_factory=_flaky_factory(0.31), retries=0, **NS)
+    again = run_experiment(TASK, [mock("best", 0.97), mock("ok", 0.75)], dataset(100), tmp_path / "r",
+                           completer_factory=_flaky_factory(0.31, fail=False), retries=0, **NS)
+    best = next(c for c in again.data["candidates"] if c["name"] == "best")
+    assert best["status"] == "included" and best["score"] > 0.9
+    assert again.data["recommendation"]["status"] != "provisional"
+
+
+def test_cost_cap_run_is_provisional_and_a_clean_run_is_recommended(tmp_path):
+    capped = run_experiment(TASK, [LR, mock("big", 0.97, 0.05)], dataset(60), tmp_path / "a", max_cost=0.5, **NS)
+    rec = capped.data["recommendation"]
+    assert rec["status"] == "provisional" and rec["reason"].startswith("Provisional: ")
+    assert "big" in rec["reason"] and "cost cap" in rec["reason"].lower()
+    clean = run_experiment(TASK, [LR, mock("big", 0.97, 0.05)], dataset(60), tmp_path / "b", **NS)
+    assert clean.data["recommendation"]["status"] in {"recommended", "inconclusive"}
+    assert not clean.data["recommendation"]["reason"].startswith("Provisional")
+
+
+def test_early_elimination_alone_does_not_make_the_run_provisional(tmp_path):
+    from tiebreak.candidates.llm import SimulatedCompleter
+
+    def factory(spec):
+        return SimulatedCompleter(0.34 if spec.name == "bad" else 0.97, TASK.labels, cost_per_call=0.001)
+
+    res = run_experiment(TASK, [LR, mock("good", 0.97), mock("bad", 0.34)], dataset(200), tmp_path / "r",
+                         completer_factory=factory, **NS)
+    assert next(c for c in res.data["candidates"] if c["name"] == "bad")["status"] == "eliminated"
+    assert res.data["recommendation"]["status"] != "provisional"

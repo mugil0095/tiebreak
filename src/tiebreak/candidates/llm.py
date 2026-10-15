@@ -214,6 +214,7 @@ class LLMCandidate:
         index = {eid: i for i, eid in enumerate(scoring.ids)}
         votes: dict[int, list] = defaultdict(list)
         seen: set[int] = set()
+        answered: set[int] = set()  # examples with at least one call that did not fail
         n_calls = n_err = n_invalid = 0
         used: list[CallRecord] = []
         for rec in sorted(records, key=lambda r: (r.example_id, r.repeat)):
@@ -226,6 +227,7 @@ class LLMCandidate:
             if rec.error is not None:
                 n_err += 1
                 continue
+            answered.add(i)
             value = parse_answer(rec.raw, self.task)
             if value is None:
                 n_invalid += 1
@@ -236,7 +238,7 @@ class LLMCandidate:
         preds: list = [None] * len(scoring)
         mask = np.zeros(len(scoring), dtype=bool)
         disagree = 0
-        for i in seen:
+        for i in answered:  # an example with only provider errors is NOT evaluated (never scored as wrong)
             mask[i] = True
             preds[i] = aggregate(votes[i], classification)
             if len(set(votes[i])) > 1:
@@ -247,5 +249,6 @@ class LLMCandidate:
             infer_seconds_per_pred=float(np.mean(lat)) if lat else 0.0, latencies=lat,
             invalid_rate=n_invalid / n_calls if n_calls else 0.0,
             error_rate=n_err / n_calls if n_calls else 0.0,
-            repeat_disagreement=disagree / len(seen) if seen else 0.0, mask=mask,
+            repeat_disagreement=disagree / len(answered) if answered else 0.0, mask=mask,
+            n_unanswered=len(seen - answered),
         )

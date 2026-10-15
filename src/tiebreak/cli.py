@@ -142,7 +142,9 @@ def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Opti
 def _print_summary(data: dict, report) -> None:
     """Only candidate names, scores, the recommendation and a few warnings; never example text."""
     rec = data["recommendation"]
-    if rec and rec.get("inconclusive"):
+    if rec and rec.get("status") == "provisional":
+        typer.echo(f"Result: PROVISIONAL ({rec['winner']}). {rec['reason'].removeprefix('Provisional: ')}")
+    elif rec and rec.get("inconclusive"):
         typer.echo(f"Result: INCONCLUSIVE ({rec['status']}). {rec['reason']}")
     elif rec:
         typer.echo(f"Recommendation: {rec['winner']} ({rec['status']}). {rec['reason']}")

@@ -19,8 +19,9 @@ class CostSummary:
 
 def summarize_cost(result: CandidateResult, task: TaskConfig) -> CostSummary:
     if result.kind == "llm":
-        known = [c.cost_usd for c in result.calls if c.cost_usd is not None]
-        price_known = bool(result.calls) and len(known) == len(result.calls)
+        ok = [c for c in result.calls if c.error is None]  # failed calls carry no cost and say nothing about price
+        known = [c.cost_usd for c in ok if c.cost_usd is not None]
+        price_known = bool(ok) and len(known) == len(ok)
         per = float(np.mean(known)) if known else 0.0
         train = 0.0
     else:

@@ -120,7 +120,7 @@ def test_finalize_with_only_error_records():
     cand = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x"), TASK, completer=object())
     recs = [CallRecord("m", "e0", r, "", 0, 0, None, 0.0, "Timeout: x") for r in range(3)]
     res = cand.finalize(scoring, recs)
-    assert res.predictions == [None] and res.error_rate == 1.0 and res.mask.all()
+    assert res.predictions == [None] and res.error_rate == 1.0 and not res.mask.any() and res.n_unanswered == 1
     assert res.infer_seconds_per_pred == 0.0 and res.latencies == []
 
 
@@ -153,3 +153,27 @@ def test_litellm_completer_timeout_default_override_and_collisions(monkeypatch):
     assert seen["timeout"] == 5 and seen["top_p"] == 0.5
     with pytest.raises(ValueError, match="temperature"):
         LiteLLMCompleter("openai", "gpt", {"temperature": 1})
+
+
+def test_example_with_only_error_calls_is_not_evaluated_and_counted_unanswered():
+    """C1: an example whose every repeat failed has no answer; it must not be scored as a wrong answer."""
+    scoring = ds(["a", "b", "c"], ["pos", "neg", "pos"])
+    cand = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x"), TASK, completer=object())
+    recs = [
+        CallRecord("m", "e0", 0, "pos", 1, 1, 0.0, 0.1, None),
+        CallRecord("m", "e1", 0, "", 0, 0, None, 0.0, "Timeout: x"),
+        CallRecord("m", "e2", 0, "garbage", 1, 1, 0.0, 0.1, None),  # answered, but unparseable: still evaluated
+    ]
+    res = cand.finalize(scoring, recs)
+    assert list(res.mask) == [True, False, True] and res.n_unanswered == 1
+    assert res.predictions[1] is None and res.predictions[2] is None
+
+
+def test_one_successful_repeat_is_enough_to_evaluate_an_example():
+    scoring = ds(["a"], ["pos"])
+    cand = LLMCandidate(ModelSpec(name="m", kind="llm", provider="mock", model="x"), TASK, completer=object())
+    recs = [CallRecord("m", "e0", 0, "", 0, 0, None, 0.0, "Timeout: x"),
+            CallRecord("m", "e0", 1, "pos", 1, 1, 0.0, 0.1, None),
+            CallRecord("m", "e0", 2, "", 0, 0, None, 0.0, "Timeout: x")]
+    res = cand.finalize(scoring, recs)
+    assert res.mask.all() and res.predictions == ["pos"] and res.n_unanswered == 0
