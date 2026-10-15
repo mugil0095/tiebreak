@@ -31,12 +31,13 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 
 <h2>Candidates</h2>
 <div class="card"><table>
-<tr><th scope="col">Candidate</th><th scope="col">Status</th><th scope="col">{{ task.metric }}</th><th scope="col">95% interval</th><th scope="col">Cost / 1k</th><th scope="col">Total at volume</th><th scope="col">Price source</th><th scope="col">p50 / p95 latency</th><th scope="col">Invalid</th><th scope="col">Errors</th></tr>
+<tr><th scope="col">Candidate</th><th scope="col">Status</th><th scope="col">{{ task.metric }}</th><th scope="col">95% interval</th><th scope="col">Cost / 1k</th><th scope="col">Total at volume</th><th scope="col">Price source</th><th scope="col">p50 / p95 latency</th><th scope="col">Invalid</th><th scope="col">Errors</th><th scope="col">Unstable answers</th></tr>
 {% for c in rows %}
 <tr><td>{{ c.name }} <span class="tag">{{ c.kind }}</span></td>
 <td>{{ c.status }}{% if c.tied %} (tied){% endif %}{% if c.note %}<br><span class="muted">{{ c.note }}</span>{% endif %}</td>
-<td>{{ c.score }}</td><td>{{ c.ci }}</td><td>{{ c.cost_1k }}</td><td>{{ c.total }}</td><td>{{ c.price_source }}</td><td>{{ c.latency }}</td><td>{{ c.invalid }}</td><td>{{ c.errors }}</td></tr>
+<td>{{ c.score }}</td><td>{{ c.ci }}</td><td>{{ c.cost_1k }}</td><td>{{ c.total }}</td><td>{{ c.price_source }}</td><td>{{ c.latency }}</td><td>{{ c.invalid }}</td><td>{{ c.errors }}</td><td>{{ c.unstable }}</td></tr>
 {% endfor %}</table>
+<p class="muted">Unstable answers = share of examples whose repeated answers disagreed (LLM: across repeats; ML: across cross-validation repeats).</p>
 <p class="muted">* price unknown: add the model to pricing.yaml. n/a = not available. Eliminated or excluded candidates are scored only on the examples they completed and are not part of the comparison. Latency is measured on this machine and network, not a provider benchmark.</p></div>
 
 {% if prices_used %}<h2>Prices used</h2>

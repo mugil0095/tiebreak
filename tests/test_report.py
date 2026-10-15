@@ -199,3 +199,17 @@ def test_report_shows_price_source_column_and_prices_used_section():
     assert "Prices used" in html and "2026-10-15" in html and "big-model" in html
     assert "0.003" in html and "0.015" in html and "per 1k tokens" in html
     assert "Prices used" not in render_report(DATA)  # older results.json without the field still renders
+
+
+def test_unstable_answers_column_shows_repeat_disagreement_and_is_null_safe():
+    html = render_report(DATA)
+    assert 'scope="col">Unstable answers</th>' in html
+    assert "<td>2.0%</td>" in html  # big: repeat_disagreement 0.02
+    assert "share of examples whose repeated answers disagreed" in html
+    d = copy.deepcopy(DATA)
+    d["candidates"][1]["repeat_disagreement"] = None
+    del d["candidates"][0]["repeat_disagreement"]
+    html = render_report(d)
+    assert "<td>2.0%</td>" not in html and "nan" not in html.lower()
+    row = re.search(r"<tr><td>big .*?</tr>", html, re.DOTALL).group(0)
+    assert row.rstrip().endswith("<td>n/a</td></tr>")

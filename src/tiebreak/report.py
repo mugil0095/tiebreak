@@ -30,6 +30,8 @@ def _row(c: dict) -> dict:
         "cost_1k": cost1k + (star if cost1k != NA else ""), "total": total + (star if total != NA else ""),
         "price_source": c.get("price_source") or NA, "latency": lat, "invalid": NA if not _num(c.get("invalid_rate")) else f"{c['invalid_rate'] * 100:.1f}%",
         "errors": NA if not _num(c.get("error_rate")) else f"{c['error_rate'] * 100:.1f}%",
+
+        "unstable": NA if not _num(c.get("repeat_disagreement")) else f"{c['repeat_disagreement'] * 100:.1f}%",
     }
 
 
