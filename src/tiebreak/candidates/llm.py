@@ -103,28 +103,6 @@ def render_prompt(task: TaskConfig, input_text: str, shots_text: str, template: 
     return "\n\n".join(parts)
 
 
-class SimulatedCompleter:
-    """Deterministic fake model with a target accuracy. Used by the demo; reports are labelled SIMULATED."""
-
-    simulated = True
-
-    def __init__(self, accuracy: float, labels: list[str], seed: int = 0,
-                 cost_per_call: float = 0.0005, latency_s: float = 0.2):
-        self.accuracy, self.labels, self.seed = accuracy, labels, seed
-        self.cost_per_call, self.latency_s = cost_per_call, latency_s
-        self.truth: dict[str, str] = {}
-
-    def prime(self, mapping: dict[str, str]) -> None:
-        self.truth.update(mapping)
-
-    def complete(self, prompt: str) -> Completion:
-        h = int.from_bytes(hashlib.sha256(f"{self.seed}|{prompt}".encode()).digest()[:8], "big") / 2**64
-        truth = self.truth.get(prompt)
-        wrong = [label for label in self.labels if label != truth] or self.labels
-        answer = truth if (truth is not None and h < self.accuracy) else wrong[int(h * 1e6) % len(wrong)]
-        return Completion(answer, len(prompt) // 4, 2, self.cost_per_call, self.latency_s)
-
-
 class OpenAICompatCompleter:
     def __init__(self, base_url: str, model: str, api_key_env: str | None = None, client=None):
         try:
@@ -211,6 +189,8 @@ def check_task_support(spec: ModelSpec, task: TaskConfig) -> None:
 def build_completer(spec: ModelSpec, task: TaskConfig) -> Completer:
     check_task_support(spec, task)
     if spec.provider == "mock":
+        from ..simulate import SimulatedCompleter  # simulation only; imported lazily
+
         p = spec.params
         return SimulatedCompleter(
             accuracy=float(p.get("accuracy", 0.8)), labels=task.labels or [], seed=int(p.get("seed", 0)),
@@ -245,7 +225,7 @@ class LLMCandidate:
             truth[prompt] = str(scoring.y[i])
             for r in range(self.task.repeats):
                 calls.append(Call((self.name, scoring.ids[i], r), prompt, cfg))
-        prime = getattr(self.completer, "prime", None)
+        prime = getattr(self.completer, "prime", None)  # simulation hook: simulated completers are handed the true answers
         if prime:
             prime(truth)
         return calls

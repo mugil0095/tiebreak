@@ -7,11 +7,12 @@ import pytest
 
 from tiebreak.candidates.base import CallRecord
 from tiebreak.candidates.llm import (
-    LLMCandidate, OpenAICompatCompleter, SimulatedCompleter,
+    LLMCandidate, OpenAICompatCompleter,
     build_completer, render_prompt, row_text,
 )
 from tiebreak.config import ModelSpec, TaskConfig
 from tiebreak.data import Dataset
+from tiebreak.simulate import SimulatedCompleter
 
 TASK = TaskConfig(type="classify", label_column="s", text_column="t", labels=["neg", "pos"], repeats=3)
 

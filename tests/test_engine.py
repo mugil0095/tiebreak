@@ -88,7 +88,7 @@ def test_candidate_whose_every_call_errors_is_excluded_not_fatal(tmp_path):
 def test_clearly_worse_llm_is_eliminated_early_and_saves_calls(tmp_path):
     counts = {"bad": 0}
 
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     class Bad(SimulatedCompleter):
         def complete(self, p):
@@ -136,7 +136,7 @@ def test_results_json_is_strict_json_with_null_for_nan_scores(tmp_path):
 
 
 def test_unknown_cost_with_a_cap_is_a_safety_error(tmp_path):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     class NoCost(SimulatedCompleter):
         def complete(self, p):
@@ -196,7 +196,7 @@ def test_reducing_repeats_in_same_folder_matches_a_fresh_run(tmp_path):
 
 
 def test_old_config_answers_never_fill_a_partially_run_candidate(tmp_path):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     def factory(acc):
         return lambda spec: SimulatedCompleter(acc, TASK.labels, cost_per_call=0.001) if spec.name != "logreg" else None
@@ -223,7 +223,7 @@ def test_two_round_path_flags_failing_candidate_instead_of_eliminating(tmp_path)
 
 
 def test_partial_round_one_errors_do_not_cause_elimination(tmp_path):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     class Flaky(SimulatedCompleter):
         def complete(self, p):
@@ -275,7 +275,7 @@ class _Flaky:
 
 
 def _flaky_factory(rate, fail=True):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     def factory(spec):
         acc = {"best": 0.97, "ok": 0.75}[spec.name]
@@ -322,7 +322,7 @@ def test_cost_cap_run_is_provisional_and_a_clean_run_is_recommended(tmp_path):
 
 
 def test_early_elimination_alone_does_not_make_the_run_provisional(tmp_path):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     def factory(spec):
         return SimulatedCompleter(0.34 if spec.name == "bad" else 0.97, TASK.labels, cost_per_call=0.001)
@@ -371,7 +371,7 @@ def test_regression_abstainer_cannot_beat_a_real_model(tmp_path):
 
 
 def test_classification_invalid_answers_above_five_percent_warn(tmp_path):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     class Chatty(SimulatedCompleter):
         def complete(self, p):
@@ -387,7 +387,7 @@ def test_classification_invalid_answers_above_five_percent_warn(tmp_path):
 
 
 def _fixed_latency(latency, tin=100, tout=2, cost=None):
-    from tiebreak.candidates.llm import SimulatedCompleter
+    from tiebreak.simulate import SimulatedCompleter
 
     class Fixed(SimulatedCompleter):
         def complete(self, p):
