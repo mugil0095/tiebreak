@@ -58,6 +58,30 @@ tiebreak report runs/<run>        # regenerate the report, no model calls
 tiebreak diagnose runs/<run>      # suspected labelling mistakes, disagreements
 ```
 
+### Verify with your own provider
+
+The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm]"` and your own key):
+
+```yaml
+# my-models.yaml: one real hosted candidate plus a free baseline
+- name: hosted-a
+  kind: llm
+  provider: <provider>              # a LiteLLM provider id, e.g. the one your key belongs to
+  model: "<model id from your account>"
+  api_key_env: MY_PROVIDER_API_KEY  # name of the environment variable that holds your key
+- name: logreg
+  kind: ml
+  estimator: logistic_regression
+```
+
+```bash
+export MY_PROVIDER_API_KEY=...      # PowerShell: $env:MY_PROVIDER_API_KEY = "..."
+tiebreak estimate --task task.yaml --models my-models.yaml --data mydata.csv    # calls nothing; check the cost
+tiebreak run --task task.yaml --models my-models.yaml --data mydata.csv --yes-send-data --max-cost 0.05
+```
+
+Use a small labelled sample (40 to 60 rows) and add the model to `pricing.yaml` (`--pricing`) if `estimate` reports its price as unknown, because the cap cannot be enforced without a price. The result will usually be inconclusive at that size; what you are checking is that the calls succeed, costs are recorded and the report opens.
+
 ## How the decision works
 
 - **Equivalence margin.** You choose a margin (default 0.02 on the primary metric). A candidate is *tied* with the best only when we are 95% confident (Holm-adjusted for the number of comparisons) that it is no more than the margin below the best. "Not significantly different" is never treated as "tied".
