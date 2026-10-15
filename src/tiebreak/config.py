@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 TaskType = Literal["classify", "binary", "extract_exact", "regress"]
 DEFAULT_METRIC = {
@@ -63,21 +63,61 @@ class ModelSpec(BaseModel):
         return self
 
 
+class ConfigError(ValueError):
+    """A config file is empty, malformed, or missing something; the message names the file."""
+
+
 def _read_yaml(path):
     with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        try:
+            return yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            detail = " ".join(str(e).split())
+            raise ConfigError(f"{path}: not valid YAML ({detail})") from e
+
+
+def _read_required(path):
+    raw = _read_yaml(path)
+    if raw is None:
+        raise ConfigError(f"{path}: the file is empty")
+    return raw
+
+
+def _fmt_validation(path, e: ValidationError, prefix: str = "") -> str:
+    parts = []
+    for err in e.errors():
+        loc = ".".join(str(x) for x in err["loc"]) or "(root)"
+        msg = err["msg"].removeprefix("Value error, ")
+        parts.append(f"{prefix}{loc}: {msg}" if err["loc"] else f"{prefix}{msg}")
+    return f"{path}: " + "; ".join(parts)
 
 
 def load_task(path) -> TaskConfig:
-    return TaskConfig(**_read_yaml(path))
+    raw = _read_required(path)
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: expected key: value pairs (type, label_column, ...)")
+    try:
+        return TaskConfig(**raw)
+    except ValidationError as e:
+        raise ConfigError(_fmt_validation(path, e)) from e
 
 
 def load_models(path) -> list[ModelSpec]:
-    specs = [ModelSpec(**m) for m in _read_yaml(path)]
+    raw = _read_required(path)
+    if not isinstance(raw, list):
+        raise ConfigError(f"{path}: expected a list of candidates, each starting with '- '")
+    specs = []
+    for i, m in enumerate(raw, 1):
+        if not isinstance(m, dict):
+            raise ConfigError(f"{path}: candidate #{i} must be a mapping like {{name: x, kind: ml, ...}}")
+        try:
+            specs.append(ModelSpec(**m))
+        except ValidationError as e:
+            raise ConfigError(_fmt_validation(path, e, f"candidate #{i} ({m.get('name', '?')}): ")) from e
     names = [s.name for s in specs]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
-        raise ValueError(f"duplicate candidate names: {dupes}")
+        raise ConfigError(f"{path}: duplicate candidate names: {dupes}")
     return specs
 
 
@@ -85,4 +125,17 @@ def load_pricing(path) -> dict[str, tuple[float, float]]:
     if path is None:
         return {}
     raw = _read_yaml(path) or {}
-    return {k: (float(v["input_per_1k"]), float(v["output_per_1k"])) for k, v in raw.items()}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: expected 'model-id: {{input_per_1k: x, output_per_1k: y}}' entries")
+    out = {}
+    for k, v in raw.items():
+        if not isinstance(v, dict):
+            raise ConfigError(f"{path}: price for '{k}' must be {{input_per_1k: x, output_per_1k: y}}")
+        for key in ("input_per_1k", "output_per_1k"):
+            if key not in v:
+                raise ConfigError(f"{path}: price for '{k}' is missing {key}")
+        try:
+            out[str(k)] = (float(v["input_per_1k"]), float(v["output_per_1k"]))
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"{path}: price for '{k}' must be numbers") from e
+    return out

@@ -57,3 +57,67 @@ def test_load_task_and_pricing(tmp_path):
     assert t.margin == 0.05 and t.text_column == "t"
     assert load_pricing(tmp_path / "pricing.yaml") == {"some-model": (0.5, 1.5)}
     assert load_pricing(None) == {}
+
+
+from tiebreak.config import ConfigError
+
+
+def _bad(tmp_path, name, text):
+    p = tmp_path / name
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+@pytest.mark.parametrize("loader,name", [(load_task, "task.yaml"), (load_models, "models.yaml")])
+def test_empty_file_gives_clear_error(tmp_path, loader, name):
+    p = _bad(tmp_path, name, "")
+    with pytest.raises(ConfigError, match="empty") as e:
+        loader(p)
+    assert name in str(e.value)
+
+
+@pytest.mark.parametrize("loader,name", [(load_task, "task.yaml"), (load_models, "models.yaml"),
+                                         (load_pricing, "pricing.yaml")])
+def test_malformed_yaml_names_file(tmp_path, loader, name):
+    p = _bad(tmp_path, name, "a: [unclosed\n")
+    with pytest.raises(ConfigError, match="not valid YAML") as e:
+        loader(p)
+    assert name in str(e.value)
+
+
+def test_missing_required_key_names_file_and_field(tmp_path):
+    p = _bad(tmp_path, "task.yaml", "type: classify\nlabels: [a, b]\n")
+    with pytest.raises(ConfigError) as e:
+        load_task(p)
+    assert "task.yaml" in str(e.value) and "label_column" in str(e.value)
+    assert not isinstance(e.value, ValidationError)
+
+
+def test_models_wrong_shape_and_bad_entry(tmp_path):
+    p = _bad(tmp_path, "models.yaml", "name: a\nkind: ml\n")
+    with pytest.raises(ConfigError, match="list"):
+        load_models(p)
+    p = _bad(tmp_path, "models2.yaml", "- {name: a, kind: llm}\n")
+    with pytest.raises(ConfigError, match="models2.yaml"):
+        load_models(p)
+    p = _bad(tmp_path, "models3.yaml", "- just a string\n")
+    with pytest.raises(ConfigError, match="models3.yaml"):
+        load_models(p)
+
+
+def test_malformed_pricing_entry(tmp_path):
+    p = _bad(tmp_path, "pricing.yaml", "m: {input_per_1k: 0.5}\n")
+    with pytest.raises(ConfigError, match="output_per_1k") as e:
+        load_pricing(p)
+    assert "pricing.yaml" in str(e.value)
+    p = _bad(tmp_path, "pricing2.yaml", "m: 3\n")
+    with pytest.raises(ConfigError, match="pricing2.yaml"):
+        load_pricing(p)
+    p = _bad(tmp_path, "pricing3.yaml", "m: {input_per_1k: abc, output_per_1k: 1}\n")
+    with pytest.raises(ConfigError, match="pricing3.yaml"):
+        load_pricing(p)
+
+
+def test_missing_file_is_file_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_task(tmp_path / "nope.yaml")
