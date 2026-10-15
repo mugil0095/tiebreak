@@ -22,6 +22,7 @@ class BootstrapResult:
     best: str
     y: np.ndarray | None = None  # encoded labels, kept for the discordance guard
     preds: dict[str, np.ndarray] | None = None
+    seed: int = 0  # bootstrap seed, reused by the discordance guard
 
 
 def paired_bootstrap(
@@ -55,7 +56,7 @@ def paired_bootstrap(
         for j, m in enumerate(names)
     }
     best = max(names, key=lambda m: point[m])
-    return BootstrapResult(names, n, n_boot, point, ci, loss, best, np.asarray(y), {m: np.asarray(preds[m]) for m in names})
+    return BootstrapResult(names, n, n_boot, point, ci, loss, best, np.asarray(y), {m: np.asarray(preds[m]) for m in names}, seed)
 
 
 def holm(pvals, alpha: float = 0.05) -> list[bool]:
@@ -67,6 +68,26 @@ def holm(pvals, alpha: float = 0.05) -> list[bool]:
         else:
             break
     return reject
+
+
+def discordance_counts(y: np.ndarray, best_pred: np.ndarray, cand_pred: np.ndarray) -> tuple[int, int, int]:
+    """(b, c, e): b = best right & cand wrong, c = best wrong & cand right, e = the rest."""
+    y = np.asarray(y)
+    a = np.asarray(best_pred) == y
+    c_ok = np.asarray(cand_pred) == y
+    b = int(np.sum(a & ~c_ok))
+    c = int(np.sum(~a & c_ok))
+    return b, c, len(y) - b - c
+
+
+def _guard_p_counts(
+    b: float, c: float, e: float, margin: float, n_draws: int, prior: float | None, seed: int
+) -> float:
+    prior = GUARD_PRIOR if prior is None else prior
+    rng = np.random.default_rng(seed)
+    d = rng.dirichlet([b + prior, c + prior, e + prior], size=n_draws)
+    loss = d[:, 0] - d[:, 1]
+    return (1 + int(np.sum(loss > margin))) / (n_draws + 1)
 
 
 def guard_p(
@@ -85,18 +106,31 @@ def guard_p(
     c = #(best wrong, cand right), e = the rest; (p_b, p_c, p_e) ~ Dirichlet(b+k, c+k, e+k), k = GUARD_PRIOR
     and loss = p_b - p_c. Returns (1 + #(loss > margin)) / (n_draws + 1).
     """
-    y = np.asarray(y)
-    a = np.asarray(best_pred) == y
-    c_ok = np.asarray(cand_pred) == y
-    n = len(y)
-    b = int(np.sum(a & ~c_ok))
-    c = int(np.sum(~a & c_ok))
-    e = n - b - c
-    rng = np.random.default_rng(seed)
-    prior = GUARD_PRIOR if prior is None else prior
-    d = rng.dirichlet([b + prior, c + prior, e + prior], size=n_draws)
-    loss = d[:, 0] - d[:, 1]
-    return (1 + int(np.sum(loss > margin))) / (n_draws + 1)
+    b, c, e = discordance_counts(y, best_pred, cand_pred)
+    return _guard_p_counts(b, c, e, margin, n_draws, prior, seed)
+
+
+def guard_extra_examples(
+    b: int, c: int, e: int, margin: float, level: float, seed: int = 0, max_mult: float = 100.0
+) -> int | None:
+    """Extra examples (same discordance rates, counts scaled by m = n'/n) until the guard p <= level.
+
+    None when the observed loss already exceeds the margin (no slack); 0 when the guard already
+    passes; if the search cap (100x the data) is hit, returns the cap's extra examples.
+    """
+    n = b + c + e
+    if (b - c) / n > margin:
+        return None
+    if _guard_p_counts(b, c, e, margin, 20_000, None, seed) <= level:
+        return 0
+    m = 1.25
+    while True:
+        m = min(m, max_mult)
+        if _guard_p_counts(b * m, c * m, e * m, margin, 20_000, None, seed) <= level:
+            return math.ceil(n * m) - n
+        if m >= max_mult:
+            return math.ceil(n * max_mult) - n
+        m *= 1.25
 
 
 def equivalent_set(
@@ -109,7 +143,8 @@ def equivalent_set(
     candidates which almost never disagree with the best are not tied by default.
     guard=False uses the bootstrap alone: use it for regression metrics, with the
     limitation that near-identical predictions then have no resampling variance and
-    are declared equivalent regardless of sample size.
+    are declared equivalent regardless of sample size. The engine passes
+    guard=metric.classification.
     """
     out = {boot.best: True}
     others = [j for j, m in enumerate(boot.names) if m != boot.best]
@@ -119,7 +154,7 @@ def equivalent_set(
     pvals = [(1 + int(np.sum(boot.loss[:, j] > margin))) / (B + 1) for j in others]
     if guard and boot.y is not None and boot.preds is not None:
         pvals = [
-            max(p, guard_p(boot.y, boot.preds[boot.best], boot.preds[boot.names[j]], margin))
+            max(p, guard_p(boot.y, boot.preds[boot.best], boot.preds[boot.names[j]], margin, seed=boot.seed))
             for p, j in zip(pvals, others)
         ]
     for j, rej in zip(others, holm(pvals, alpha)):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .stats import BootstrapResult, extra_examples_needed, upper_loss
+from .stats import BootstrapResult, discordance_counts, extra_examples_needed, guard_extra_examples, upper_loss
 
 
 @dataclass
@@ -22,10 +22,13 @@ def recommend(
     equiv: dict[str, bool],
     objective: dict[str, float],
     margin: float,
+    alpha: float = 0.05,
+    guard: bool = True,
 ) -> Recommendation:
     best = boot.best
     k = len(boot.names)
-    q = 1 - 0.05 / max(k - 1, 1)  # same Holm-style adjustment as the equivalence test
+    level = alpha / max(k - 1, 1)
+    q = 1 - level  # same Holm-style adjustment as the equivalence test
 
     def cost(m: str) -> float:
         v = objective.get(m)
@@ -44,6 +47,10 @@ def recommend(
         if point_loss <= margin:
             inconclusive.append(m)
             need = extra_examples_needed(boot.n, point_loss, upper_loss(boot, m, q), margin)
+            if need is not None and guard and boot.y is not None and boot.preds is not None:
+                b, c, e = discordance_counts(boot.y, boot.preds[best], boot.preds[m])
+                g = guard_extra_examples(b, c, e, margin, level, seed=boot.seed)
+                need = None if g is None else max(need, g)
             extra[m] = None if need is None else max(need, 1)
 
     if winner == best:

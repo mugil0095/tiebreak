@@ -79,4 +79,18 @@ def test_holm_blocked_candidate_gets_close_message_not_margin_too_tight():
 def test_missing_or_nan_objective_is_most_expensive():
     y = np.array([0, 1, 2] * 200)
     rec, _ = run({"a": y.copy(), "b": y.copy(), "c": y.copy()}, {"a": float("nan"), "b": 2.0}, y)
-    assert rec.winner == "b" and "No usable cost" in rec.reason and "a" in rec.reason
+    assert rec.winner == "b" and "No usable cost for a" in rec.reason
+
+
+def test_guard_blocked_tie_reports_realistic_extra_examples():
+    y = np.array([0, 1, 2, 0] * 25)  # n=100, identical predictions
+    rec, boot = run({"big": y.copy(), "small": y.copy()}, {"big": 10.0, "small": 1.0}, y)
+    assert rec.status == "inconclusive" and rec.inconclusive == ["small"]
+    need = rec.extra_examples["small"]
+    assert need >= 80
+    assert f"approximately {need}" in rec.reason
+    # adding that many identical examples lets the guard pass
+    reps = -(-(100 + need) // 4)
+    y2 = np.array([0, 1, 2, 0] * reps)
+    rec2, _ = run({"big": y2.copy(), "small": y2.copy()}, {"big": 10.0, "small": 1.0}, y2)
+    assert rec2.status == "recommended" and rec2.winner == "small"
