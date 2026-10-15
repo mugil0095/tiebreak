@@ -58,6 +58,17 @@ tiebreak report runs/<run>        # regenerate the report, no model calls
 tiebreak diagnose runs/<run>      # suspected labelling mistakes, disagreements
 ```
 
+### Reasoning ("thinking") models
+
+tiebreak asks for short answers (`temperature: 0`, `max_tokens: 64`). A reasoning model can spend all 64 tokens on hidden thinking and return an empty answer; tiebreak then reports a high invalid rate and says so. Override the defaults per candidate through `params`:
+
+```yaml
+- {name: qwen-small, kind: llm, provider: ollama, model: "qwen3.5:0.8b", params: {think: false}}
+- {name: hosted-r, kind: llm, provider: <provider>, model: "<model id>", params: {max_tokens: 2048}}
+```
+
+`params` are passed straight to LiteLLM and replace the defaults; they are part of the cache key, so changing them re-runs the calls.
+
 ### Verify with your own provider
 
 The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm]"` and your own key):

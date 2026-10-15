@@ -152,8 +152,9 @@ def test_litellm_completer_timeout_default_override_and_collisions(monkeypatch):
     assert seen["timeout"] == 60 and seen["temperature"] == 0
     LiteLLMCompleter("openai", "gpt", {"timeout": 5, "top_p": 0.5}).complete("hi")
     assert seen["timeout"] == 5 and seen["top_p"] == 0.5
-    with pytest.raises(ValueError, match="temperature"):
-        LiteLLMCompleter("openai", "gpt", {"temperature": 1})
+    assert seen["max_tokens"] == 64
+    LiteLLMCompleter("openai", "gpt", {"max_tokens": 2048, "temperature": 0.5}).complete("hi")
+    assert seen["max_tokens"] == 2048 and seen["temperature"] == 0.5  # params override the defaults
 
 
 def test_example_with_only_error_calls_is_not_evaluated_and_counted_unanswered():

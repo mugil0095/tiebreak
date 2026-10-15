@@ -483,3 +483,14 @@ def test_cap_counts_spend_from_before_a_prompt_change(tmp_path):
                        params={"accuracy": 0.9, "cost_per_call": 0.01})
     res = run_experiment(TASK, [edited], dataset(30), tmp_path / "r", max_cost=0.35, concurrency=1, **NS)
     assert res.data["incomplete"] is True  # 0.30 old + new calls hits 0.35 long before 30 new calls ($0.30 more)
+
+
+def test_empty_answers_get_a_reasoning_model_hint(tmp_path):
+    class Empty:
+        def complete(self, p):
+            return Completion("", 10, 64, 0.0, 0.1)
+
+    res = run_experiment(TASK, [LR, mock("thinker", 0.9)], dataset(60), tmp_path / "r",
+                         completer_factory=lambda spec: Empty(), **NS)
+    text = " ".join(res.data["warnings"])
+    assert "thinker" in text and "Most answers were empty" in text and "think: false" in text

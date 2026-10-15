@@ -139,9 +139,6 @@ class LiteLLMCompleter:
     def __init__(self, provider: str, model: str, params: dict | None = None,
                  base_url: str | None = None, api_key_env: str | None = None):
         params = dict(params or {})
-        clash = sorted({"temperature", "max_tokens"} & set(params))
-        if clash:
-            raise ValueError(f"params {clash} are set by tiebreak (temperature=0, max_tokens=64) and cannot be overridden")
         self.timeout = params.pop("timeout", 60)
         try:
             import litellm
@@ -161,10 +158,9 @@ class LiteLLMCompleter:
                 raise NonRetryableError(f"environment variable {self.api_key_env} is not set or empty")
             extra["api_key"] = key
         t0 = time.perf_counter()
-        resp = self.litellm.completion(
-            model=self.model_id, messages=[{"role": "user", "content": prompt}],
-            temperature=0, max_tokens=64, timeout=self.timeout, **extra,
-        )
+        # defaults suit short labels; a reasoning model may need params: {max_tokens: ...} or {think: false}
+        call = {"temperature": 0, "max_tokens": 64, "timeout": self.timeout, **extra}
+        resp = self.litellm.completion(model=self.model_id, messages=[{"role": "user", "content": prompt}], **call)
         latency = time.perf_counter() - t0
         try:
             cost = float(self.litellm.completion_cost(completion_response=resp))

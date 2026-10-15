@@ -202,6 +202,11 @@ def _run_llm_rounds(task, scoring, shots, cands, results, prices, store, metric,
     return active, elimination_log, incomplete
 
 
+def _mostly_empty(res) -> bool:
+    ok = [c for c in res.calls if c.error is None]
+    return bool(ok) and sum(1 for c in ok if not c.raw.strip()) / len(ok) > 0.5
+
+
 def _decide_status(results: dict[str, CandidateResult], n: int, warnings: list[str], notes: dict[str, str]) -> dict[str, str]:
     """included / excluded / eliminated per candidate; appends to `warnings` and `notes` in place."""
     status: dict[str, str] = {}
@@ -226,7 +231,11 @@ def _decide_status(results: dict[str, CandidateResult], n: int, warnings: list[s
             status[name] = "included"
     for name, res in results.items():
         if res.invalid_rate > INVALID_WARN_RATE:
-            warnings.append(f"{name}: {res.invalid_rate:.0%} of answers could not be parsed and are scored as maximally wrong")
+            msg = f"{name}: {res.invalid_rate:.0%} of answers could not be parsed and are scored as maximally wrong"
+            if res.kind == "llm" and _mostly_empty(res):
+                msg += (". Most answers were empty: a reasoning model may be spending its token limit on hidden "
+                        "thinking; set params: {think: false} (Ollama) or a larger max_tokens in models.yaml")
+            warnings.append(msg)
     return status
 
 
