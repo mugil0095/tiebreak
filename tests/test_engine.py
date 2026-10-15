@@ -244,12 +244,14 @@ def test_partial_round_one_errors_do_not_cause_elimination(tmp_path):
 
 def test_snapshot_never_contains_secrets(tmp_path):
     spec = ModelSpec(name="m", kind="llm", provider="mock", model="m", base_url="http://user:pw123@localhost:8000/v1",
-                     params={"accuracy": 0.9, "api_key": "sk-abc123456", "nested": {"Authorization": "Bearer zzz"}})
+                     params={"accuracy": 0.9, "api_key": "sk-abc123456", "max_tokens": 256, "num_tokens": 7, "token": "tok-777",
+                             "access_token": "at-888", "nested": {"Authorization": "Bearer zzz"}})
     run_experiment(TASK, [spec], dataset(30), tmp_path / "r", **NS)
     text = (tmp_path / "r" / "config.snapshot" / "models.json").read_text()
-    for secret in ("sk-abc123456", "pw123", "Bearer zzz"):
+    for secret in ("sk-abc123456", "pw123", "Bearer zzz", "tok-777", "at-888"):
         assert secret not in text
     assert "localhost:8000" in text and '"accuracy": 0.9' in text
+    assert '"max_tokens": 256' in text and '"num_tokens": 7' in text  # benign keys are kept
 
 
 def test_fewer_than_two_scoring_examples_is_a_clear_error(tmp_path):

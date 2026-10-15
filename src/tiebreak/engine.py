@@ -74,7 +74,9 @@ def _clean(obj):
     return obj
 
 
-_SECRET_KEY = re.compile(r"api[_-]?key|token|secret|password|authorization", re.I)
+# Benign keys such as max_tokens / num_tokens must survive; a bare "token" key is a secret.
+_SECRET_KEY = re.compile(
+    r"api[_-]?key|secret|password|authorization|access[_-]?token|auth[_-]?token|bearer|^token$", re.I)
 
 
 def _redact_params(obj):
