@@ -291,3 +291,13 @@ def test_many_threads_every_line_parses(tmp_path):
     lines = path.read_text().splitlines()
     assert len(lines) == 400 and len(recs) == 400
     assert {_json.loads(ln)["example_id"] for ln in lines} == {f"e{i}" for i in range(400)}
+
+
+def test_seed_from_store_false_leaves_a_shared_cap_untouched(tmp_path):
+    path = tmp_path / "p.jsonl"
+    execute_calls(calls(4), Counting(cost=0.01), PredictionStore(path), **NO_SLEEP)
+    seeded, shared = CostCap(1.0), CostCap(1.0)
+    execute_calls(calls(4), Counting(), PredictionStore(path), cap=seeded, **NO_SLEEP)
+    execute_calls(calls(4), Counting(), PredictionStore(path), cap=shared, seed_from_store=False, **NO_SLEEP)
+    assert seeded.spent == pytest.approx(0.04)
+    assert shared.spent == 0.0

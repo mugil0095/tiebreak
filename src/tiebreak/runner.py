@@ -132,7 +132,7 @@ def execute_calls(
     calls: list[Call], completer, store: PredictionStore, *,
     price=None, cap: CostCap | None = None, concurrency: int = 4,
     retries: int = 3, backoff: float = 1.0, sleep=time.sleep,
-    secrets: list[str] | None = None,
+    secrets: list[str] | None = None, seed_from_store: bool = True,
 ) -> list[CallRecord]:
     cap = cap or CostCap(None)
     stop = threading.Event()
@@ -150,7 +150,7 @@ def execute_calls(
     for name, n in stale.items():
         log.warning("%d cached answers for '%s' were produced with a different prompt/config and were re-run", n, name)
 
-    if cap.limit is not None:  # the cap is cumulative across resumes
+    if cap.limit is not None and seed_from_store:  # the cap is cumulative across resumes
         cap.add(sum(r.cost_usd or 0.0 for name in {c.key[0] for c in calls} for r in store.for_candidate(name)))
 
     def attempt_call(c: Call):
