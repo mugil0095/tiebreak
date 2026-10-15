@@ -55,6 +55,7 @@ data.csv is synthetic (about 12% of reviews use misleading wording, so no model 
 accuracy; they make no API calls. The results only show how tiebreak works. Do not use them to
 choose a real model. The story it shows: a cheap model (sim-small) can tie an expensive one
 (sim-large), so the cheaper one is recommended.
+The margin in task.yaml is 0.05 (not the default 0.02) because 300 examples cannot confirm a tighter margin.
 
 Try:
   tiebreak estimate --task task.yaml --models models.yaml --data data.csv

@@ -44,6 +44,7 @@ def test_demo_files_are_valid_and_say_simulated(tmp_path):
     assert {m["provider"] for m in models if m["kind"] == "llm"} == {"mock"}
     assert "SIMULATED" in (work / "models.yaml").read_text()
     assert "SIMULATED" in (work / "README.txt").read_text()
+    assert "0.05" in (work / "README.txt").read_text() and "300 examples cannot confirm" in (work / "README.txt").read_text()
 
 
 def test_two_runs_get_distinct_folders(tmp_path):
