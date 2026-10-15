@@ -172,7 +172,16 @@ class MLCandidate:
                 ("est", _make_estimator(self.spec.estimator, self.classification, task.seed)),
             ])
             t0 = time.perf_counter()
-            pipe.fit(train.frame, y_train)
+            try:
+                pipe.fit(train.frame, y_train)
+            except ValueError as e:
+                missing = [label for label, i in vocab.items() if i not in y_train] if vocab else []
+                if not missing:
+                    raise
+                raise ValueError(
+                    f"{self.name}: no training example for label(s) {missing} in a cross-validation fold, and "
+                    f"'{self.spec.estimator}' needs every label in task.labels present. Add examples of them or "
+                    "remove them from task.labels") from e
             fit_times.append(time.perf_counter() - t0)
             t0 = time.perf_counter()
             pred = pipe.predict(test.frame)

@@ -190,3 +190,60 @@ def test_column_type_decided_once_not_per_fold(bad):
     finally:
         ml._preprocessor = orig
     assert seen and not any(seen)  # categorical in every fold
+
+
+def _boost_run(est, task, ds):
+    pytest.importorskip(est)
+    split = make_split(ds, task)
+    return split, MLCandidate(ModelSpec(name=est, kind="ml", estimator=est), task).run(
+        split, make_folds(split.scoring.y, task))
+
+
+@pytest.mark.parametrize("est", ["xgboost", "lightgbm"])
+def test_boosted_estimators_classify_text(est):
+    split, res = _boost_run(est, TASK, reviews_dataset(300))
+    assert all(p in TASK.labels for p in res.predictions)
+    assert np.mean([p == y for p, y in zip(res.predictions, split.scoring.y)]) > 0.9
+
+
+@pytest.mark.parametrize("est", ["xgboost", "lightgbm"])
+def test_boosted_estimators_use_numeric_and_categorical_features(est):
+    rng = np.random.default_rng(0)
+    n = 120
+    x = rng.normal(size=n)
+    color = rng.choice(["r", "g"], n)
+    y = np.where(x + (color == "r") > 0.5, "yes", "no").astype(object)
+    ds = Dataset([f"r{i}" for i in range(n)], pd.DataFrame({"x": x, "color": color}), y, None)
+    task = TaskConfig(type="binary", label_column="y", labels=["no", "yes"], cv_folds=3, cv_repeats=1)
+    split, res = _boost_run(est, task, ds)
+    assert np.mean([p == t for p, t in zip(res.predictions, split.scoring.y)]) > 0.8
+
+
+@pytest.mark.parametrize("est", ["xgboost", "lightgbm"])
+def test_boosted_estimators_regress(est):
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(100, 2))
+    y = x[:, 0] * 2 + x[:, 1]
+    ds = Dataset([f"r{i}" for i in range(100)], pd.DataFrame(x, columns=["a", "b"]), y, None)
+    task = TaskConfig(type="regress", label_column="y", cv_folds=3, cv_repeats=1)
+    split, res = _boost_run(est, task, ds)
+    assert all(isinstance(p, float) for p in res.predictions)
+    assert np.corrcoef(res.predictions, split.scoring.y.astype(float))[0, 1] > 0.9
+
+
+def _without_neutral():
+    df = make_reviews(90, 0)
+    df = df[df["sentiment"] != "neutral"]  # 'neutral' stays in task.labels but never appears in the data
+    return Dataset(df["id"].tolist(), df[["review"]].reset_index(drop=True),
+                   df["sentiment"].to_numpy(dtype=object), df["review"].tolist())
+
+
+def test_xgboost_label_missing_from_training_folds_gives_a_clear_error():
+    with pytest.raises(ValueError, match=r"no training example for label\(s\) \['neutral'\]") as e:
+        _boost_run("xgboost", TASK, _without_neutral())
+    assert "Expected" not in str(e.value)  # not the raw xgboost message
+
+
+def test_lightgbm_trains_when_a_label_is_missing_from_training_folds():
+    _, res = _boost_run("lightgbm", TASK, _without_neutral())
+    assert set(res.predictions) <= {"negative", "positive"}
