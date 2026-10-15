@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
-from tiebreak.metrics import accuracy
+from tiebreak.engine import ELIMINATION_FIRST_ROUND_MIN, ELIMINATION_MIN_N
+from tiebreak.metrics import accuracy, macro_f1
+from tiebreak.planner import clearly_worse
 from tiebreak.recommend import recommend
 from tiebreak.stats import equivalent_set, paired_bootstrap
 
@@ -179,3 +181,70 @@ def test_recommend_never_crowns_a_truly_worse_cheap_model_and_usually_picks_an_i
         picked += rec.winner == "m1"
     RATES["recommend picks identical cheap model, n=800"] = picked / reps
     assert picked / reps >= 0.5
+
+
+@pytest.mark.parametrize("n", [100, 300])
+def test_false_tie_rate_for_macro_f1_at_the_margin_boundary_stays_small(n):
+    """3 balanced classes; the competitor's errors are a superset of the best's (nested) and go to a uniformly
+    random wrong class, so each class has precision = recall = accuracy and the TRUE macro-F1 of the best (0.90)
+    exceeds the competitor's (0.88) by exactly the margin 0.02. The decision uses the real macro_f1 function."""
+    rng = np.random.default_rng(300 + n)
+    margin, reps = 0.02, 300
+    false_ties = best_m0 = 0
+    for _ in range(reps):
+        y = np.arange(n) % 3
+        u = rng.random(n)
+        wrong = (y + rng.integers(1, 3, n)) % 3
+        preds = {"m0": np.where(u < 0.10, wrong, y), "m1": np.where(u < 0.12, wrong, y)}
+        boot = paired_bootstrap(y, preds, macro_f1, n_boot=400, seed=int(rng.integers(10**9)))
+        if boot.best == "m0":
+            best_m0 += 1
+            false_ties += equivalent_set(boot, margin)["m1"]
+    rate = cond_rate(false_ties, best_m0, reps)
+    RATES[f"false tie | macro-F1, 3 classes, at boundary (loss = margin 0.02), n={n}"] = rate
+    assert rate <= 0.07
+
+
+@pytest.mark.parametrize("n", [100, 300])
+def test_false_tie_rate_at_the_boundary_when_both_models_make_unique_errors(n):
+    """Non-nested errors: P(only best wrong) = 0.04, P(only competitor wrong) = 0.06, P(both wrong) = 0.04,
+    so accuracies are 0.92 vs 0.90 and b - c = margin * n in expectation with b > 0 and c > 0."""
+    rng = np.random.default_rng(400 + n)
+    margin, reps = 0.02, 300
+    false_ties = best_m0 = 0
+    for _ in range(reps):
+        u = rng.random(n)
+        y = np.ones(n, dtype=np.int64)
+        m0_right = ~(u < 0.04) & ~((u >= 0.10) & (u < 0.14))  # wrong in [0, 0.04) (m0 only) and [0.10, 0.14) (both)
+        m1_right = ~((u >= 0.04) & (u < 0.14))                # wrong in [0.04, 0.10) (m1 only) and [0.10, 0.14)
+        preds = {"m0": m0_right.astype(np.int64), "m1": m1_right.astype(np.int64)}
+        boot = boot_of(y, preds, rng, n_boot=400)
+        if boot.best == "m0":
+            best_m0 += 1
+            false_ties += equivalent_set(boot, margin)["m1"]
+    rate = cond_rate(false_ties, best_m0, reps)
+    RATES[f"false tie | non-nested errors, at boundary (loss = margin 0.02), n={n}"] = rate
+    assert rate <= 0.07
+
+
+ELIMINATION_FALSE_DROP_BOUND = {ELIMINATION_MIN_N: 0.08, 200: 0.13}  # measured: see the README Limitations
+
+
+@pytest.mark.parametrize("n", [ELIMINATION_MIN_N, 200])
+def test_early_elimination_of_a_tied_candidate_at_the_shipped_settings(n):
+    """5 truly tied candidates (accuracy 0.85); the engine's first round (max(50, n // 3) examples, only run at
+    n >= 120) with clearly_worse's shipped defaults and the default margin 0.02. Counts runs in which ANY
+    tied candidate would have been dropped."""
+    rng = np.random.default_rng(500 + n)
+    margin, reps = 0.02, 300
+    first = max(ELIMINATION_FIRST_ROUND_MIN, n // 3)
+    dropped_runs = 0
+    for _ in range(reps):
+        y, preds = simulate([0.85] * 5, n, rng)
+        sub = rng.permutation(n)[:first]
+        dropped = clearly_worse(y[sub], {k: v[sub] for k, v in preds.items()}, accuracy, margin,
+                                eligible=set(preds), seed=int(rng.integers(10**9)))
+        dropped_runs += bool(dropped)
+    RATES[f"early elimination drops a tied candidate | 5 tied, n={n}, first round {first}"] = dropped_runs / reps
+    # characterised, not guaranteed: strict thresholds still drop a tied model now and then with 5 candidates
+    assert dropped_runs / reps <= ELIMINATION_FALSE_DROP_BOUND[n]
