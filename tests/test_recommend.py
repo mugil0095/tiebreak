@@ -94,3 +94,12 @@ def test_guard_blocked_tie_reports_realistic_extra_examples():
     y2 = np.array([0, 1, 2, 0] * reps)
     rec2, _ = run({"big": y2.copy(), "small": y2.copy()}, {"big": 10.0, "small": 1.0}, y2)
     assert rec2.status == "recommended" and rec2.winner == "small"
+
+
+def test_extra_examples_beyond_100x_the_data_are_not_reported_as_a_count():
+    y = np.array([0, 1, 2] * 100)
+    small = y.copy()
+    small[:6] = (small[:6] + 1) % 3  # loss 0.02 against a margin of 0.0201: no realistic amount of data separates them
+    rec, _ = run({"big": y.copy(), "small": small}, {"big": 10.0, "small": 1.0}, y, margin=0.0201)
+    assert rec.status == "inconclusive" and rec.extra_examples["small"] >= 29700
+    assert "more than 100x the current data" in rec.reason and "approximately" not in rec.reason

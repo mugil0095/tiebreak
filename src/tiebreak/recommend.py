@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .stats import BootstrapResult, discordance_counts, extra_examples_needed, guard_extra_examples, upper_loss
+from .stats import (
+    GUARD_MAX_MULT, BootstrapResult, discordance_counts, extra_examples_needed, guard_extra_examples, upper_loss,
+)
 
 
 @dataclass
@@ -66,11 +68,12 @@ def recommend(
         hints = []
         for m in inconclusive:
             need = extra[m]
-            hints.append(
-                f"{m} (approximately {need} more labelled examples)"
-                if need is not None
-                else f"{m} (margin too tight for this data)"
-            )
+            if need is not None and need >= math.ceil(boot.n * GUARD_MAX_MULT) - boot.n:
+                hints.append(f"{m} (more than {GUARD_MAX_MULT:g}x the current data would be needed)")
+            elif need is not None:
+                hints.append(f"{m} (approximately {need} more labelled examples)")
+            else:
+                hints.append(f"{m} (margin too tight for this data)")
         base += " The data cannot separate these cheaper candidates from the best: " + ", ".join(hints) + "."
     return Recommendation(
         status="inconclusive" if inconclusive else "recommended",

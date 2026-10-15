@@ -7,7 +7,7 @@ import pytest
 
 from tiebreak.candidates.base import CallRecord
 from tiebreak.candidates.llm import (
-    Completion, LLMCandidate, OpenAICompatCompleter, SimulatedCompleter,
+    LLMCandidate, OpenAICompatCompleter, SimulatedCompleter,
     build_completer, render_prompt, row_text,
 )
 from tiebreak.config import ModelSpec, TaskConfig

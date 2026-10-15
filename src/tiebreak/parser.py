@@ -57,9 +57,12 @@ def parse_number(text: str) -> float | None:
     return float(m.group()) if m else None
 
 
+_PREFIX = re.compile(r"^\s*(?:answer|output|result)\s*:\s*", re.I)
+
+
 def parse_text(text: str) -> str | None:
     for line in text.strip().splitlines():
-        line = line.strip().strip("\"'`")
+        line = _PREFIX.sub("", line.strip(), count=1).strip().strip("\"'`")
         if line:
             return line
     return None

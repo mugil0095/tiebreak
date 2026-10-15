@@ -30,9 +30,12 @@ packages = ["src/tiebreak"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = [
-  "live: needs real provider keys (set TIEBREAK_LIVE=1)",
+  "live: reserved for future tests that need real provider keys (none exist yet)",
   "slow: statistical simulations",
 ]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["F"]  # pyflakes only: unused imports/variables, undefined names

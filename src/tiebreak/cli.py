@@ -63,7 +63,7 @@ def init(demo: bool = typer.Option(False, "--demo", help="Write a synthetic demo
     if demo:
         write_demo(dir)
         typer.echo(f"Wrote demo files to {dir} (the models in it are SIMULATED).")
-        typer.echo("Next: tiebreak run --task task.yaml --models models.yaml --data data.csv")
+        typer.echo(f'Next: tiebreak run --task "{dir / "task.yaml"}" --models "{dir / "models.yaml"}" --data "{dir / "data.csv"}"')
         return
     dir.mkdir(parents=True, exist_ok=True)
     (dir / "task.yaml").write_text(_TASK_TEMPLATE, encoding="utf-8")
@@ -127,16 +127,24 @@ def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Opti
         resume: Path = typer.Option(None, "--resume", help="Existing run folder to continue."),
         boot: int = typer.Option(10_000, "--boot", hidden=True)):
     """Run all candidates and write a report."""
+    run_dir = None
     try:
         if resume is not None and not resume.is_dir():
             raise FileNotFoundError(f"--resume folder not found: {resume}")
         t, m, ds, p = _load(task, models_path, data, pricing)
         run_dir = resume if resume is not None else _new_run_dir(out)
+        typer.echo(f"run folder: {Path(run_dir).resolve()}")
         res = run_experiment(t, m, ds, run_dir, pricing=p, max_cost=max_cost, concurrency=concurrency,
                              allow_hosted=yes_send_data, local_only=local_only, n_boot=boot)
         report = write_report(run_dir)
     except CLEAN_ERRORS as e:
         _fail(e)
+    except KeyboardInterrupt:
+        again = f'tiebreak run --task "{task}" --models "{models_path}" --data "{data}"'
+        again += " --yes-send-data" if yes_send_data else ""
+        typer.echo("Interrupted. Finished calls are saved; continue with: " + again
+                   + (f' --resume "{Path(run_dir).resolve()}"' if run_dir is not None else ""), err=True)
+        raise typer.Exit(code=130)
     _print_summary(res.data, report)
 
 

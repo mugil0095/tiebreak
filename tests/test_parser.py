@@ -63,3 +63,11 @@ def test_parse_label_negation_returns_none(text):
 def test_parse_label_negation_does_not_affect_exact_match():
     assert parse_label("positive", LABELS) == "positive"
     assert parse_label('{"label": "negative"}', LABELS) == "negative"
+
+
+def test_parse_text_strips_answer_output_result_prefixes():
+    assert parse_text("Answer: Paris") == "Paris"
+    assert parse_text("OUTPUT:   Paris\nbecause") == "Paris"
+    assert parse_text('result: "Paris"') == "Paris"
+    assert parse_text("Answer:\nParis") == "Paris"
+    assert parse_text("Answered Paris") == "Answered Paris"  # only the exact prefix words with a colon

@@ -110,8 +110,11 @@ def guard_p(
     return _guard_p_counts(b, c, e, margin, n_draws, prior, seed)
 
 
+GUARD_MAX_MULT = 100.0  # the extra-examples search stops at this multiple of the current data
+
+
 def guard_extra_examples(
-    b: int, c: int, e: int, margin: float, level: float, seed: int = 0, max_mult: float = 100.0
+    b: int, c: int, e: int, margin: float, level: float, seed: int = 0, max_mult: float = GUARD_MAX_MULT
 ) -> int | None:
     """Extra examples (same discordance rates, counts scaled by m = n'/n) until the guard p <= level.
 

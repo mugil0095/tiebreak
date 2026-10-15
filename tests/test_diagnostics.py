@@ -58,3 +58,12 @@ def test_disagreements_empty_and_invalid_is_distinct():
 
 def test_sample_warnings_zero_count_class():
     assert any("imbalanced" in w for w in sample_warnings(500, 0.02, {"a": 500, "b": 0}, {}))
+
+
+def test_imbalance_warning_does_not_mention_a_macro_f1_column_and_width_compares_to_the_margin():
+    w = sample_warnings(500, 0.02, {"a": 450, "b": 10}, {"m": 0.03})
+    text = " ".join(w)
+    assert "plain accuracy can mislead on imbalanced classes; consider macro_f1 as the metric" in text
+    assert "column" not in text
+    assert "wider than the margin for: m" in text  # 0.03 > margin 0.02, though not > 2 x margin
+    assert "wider than" not in " ".join(sample_warnings(500, 0.02, {"a": 250, "b": 250}, {"m": 0.02}))

@@ -37,8 +37,8 @@ def sample_warnings(n: int, margin: float, class_counts: dict[str, int], ci_widt
     if n < 50:
         out.append(f"Only {n} examples: fewer than 50 labelled examples rarely separate models reliably.")
     if len(class_counts) > 1 and max(class_counts.values()) > 0 and min(class_counts.values()) / max(class_counts.values()) < IMBALANCE_RATIO:
-        out.append("Classes are imbalanced; plain accuracy can mislead, so check the macro-F1 column.")
-    wide = [m for m, w in ci_widths.items() if w > margin * 2]
+        out.append("Classes are imbalanced; plain accuracy can mislead on imbalanced classes; consider macro_f1 as the metric.")
+    wide = [m for m, w in ci_widths.items() if w > margin]
     if wide:
         out.append(
             "Score intervals are wider than the margin for: " + ", ".join(sorted(wide))

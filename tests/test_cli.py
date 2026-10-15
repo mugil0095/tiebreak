@@ -218,3 +218,26 @@ def test_estimate_shows_simulated_cost_and_source_for_mock_models(tmp_path):
                             "--data", str(work / "data.csv")])
     line = next(ln for ln in r.output.splitlines() if ln.startswith("sim-large"))
     assert "(simulated)" in line and "unknown" not in line and "$3.0000" in line  # 300 calls x $0.01
+
+
+def test_run_prints_the_run_folder_first_and_demo_hint_uses_the_real_dir(tmp_path):
+    work = tmp_path / "proj dir"
+    r = runner.invoke(app, ["init", "--demo", "--dir", str(work)])
+    assert str(work / "task.yaml") in r.output.replace("\n", "") and "--data" in r.output
+    r = _run(work)
+    first = r.output.splitlines()[0]
+    run_dir = next((work / "runs").iterdir())
+    assert first.startswith("run folder: ") and str(run_dir.resolve()) in r.output.replace("\n", "")
+
+
+def test_ctrl_c_prints_a_resume_hint_and_exits_130_without_a_traceback(tmp_path, monkeypatch):
+    work = _demo(tmp_path)
+    import tiebreak.cli as cli
+
+    def boom(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run_experiment", boom)
+    r = _run(work)
+    assert r.exit_code == 130 and "Traceback" not in r.output
+    assert "--resume" in r.output and "tiebreak run" in r.output and "interrupted" in r.output.lower()

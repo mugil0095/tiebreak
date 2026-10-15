@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from tiebreak.config import TaskConfig
