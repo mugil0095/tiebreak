@@ -112,3 +112,25 @@ def test_inf_regression_label_rejected(tmp_path):
     task = TaskConfig(type="regress", label_column="v")
     with pytest.raises(DataError, match="non-finite"):
         load_dataset(write(tmp_path, "t,v\nhi,inf\nyo,2\n"), task)
+
+
+def test_csv_numeric_feature_column_becomes_float_with_blank_as_nan(tmp_path):
+    ds = load_dataset(write(tmp_path, "t,s,n\nhi,a,1\nyo,b,2.5\nok,a,\n"), TASK)
+    assert ds.frame["n"].dtype.kind == "f"
+    assert ds.frame["n"].iloc[:2].tolist() == [1.0, 2.5] and np.isnan(ds.frame["n"].iloc[2])
+
+
+def test_csv_mixed_column_stays_string(tmp_path):
+    ds = load_dataset(write(tmp_path, "t,s,m\nhi,a,1\nyo,b,two\n"), TASK)
+    assert ds.frame["m"].tolist() == ["1", "two"]
+
+
+def test_csv_numeric_looking_text_column_stays_string(tmp_path):
+    ds = load_dataset(write(tmp_path, "t,s\n007,a\n123,b\n"), TASK)
+    assert ds.frame["t"].tolist() == ["007", "123"] and ds.text == ["007", "123"]
+
+
+def test_jsonl_features_unchanged(tmp_path):
+    p = write(tmp_path, '{"t":"hi","s":"a","n":1}\n{"t":"yo","s":"b","n":2}\n', name="d.jsonl")
+    ds = load_dataset(p, TASK)
+    assert ds.frame["n"].tolist() == [1, 2]
