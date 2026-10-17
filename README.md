@@ -5,7 +5,52 @@
   </picture>
 </p>
 
+<h3 align="center">Stop paying for the biggest model.<br>Pick the cheapest one that is statistically tied with the best, on your own data.</h3>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-F0987D"></a>
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-6554C0">
+  <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2ea44f">
+  <img alt="Providers: LiteLLM, Ollama, scikit-learn" src="https://img.shields.io/badge/models-LiteLLM%20%C2%B7%20Ollama%20%C2%B7%20scikit--learn-555">
+</p>
+
+<p align="center">
+  <a href="#two-minute-demo">Demo</a> &middot;
+  <a href="#use-your-own-data">Your data</a> &middot;
+  <a href="#notebook">Notebook</a> &middot;
+  <a href="#web-app">Web app</a> &middot;
+  <a href="#how-the-decision-works">How it decides</a> &middot;
+  <a href="#limitations">Limitations</a>
+</p>
+
 **Which model should you use for your task?** tiebreak runs several candidate models (hosted LLM APIs, local LLMs via Ollama, and classic scikit-learn models) on a small labelled sample of *your* data and reports score, cost and latency with 95% confidence intervals. It then recommends the **cheapest model that is statistically tied with the best**, or says plainly that your data cannot separate the candidates and roughly how many more labelled examples would. Everything runs on your machine and produces a self-contained offline `report.html`.
+
+<p align="center">
+  <img src="docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
+</p>
+
+*A real run (not the simulated demo below): 300 labelled rows, 3-class sentiment, one hosted model against a scikit-learn baseline. One task and one sample, so this is an example of the output, not a claim that classic ML beats LLMs in general.*
+
+## Why tiebreak
+
+| The usual way | With tiebreak |
+|---|---|
+| Pick the model at the top of a leaderboard | Measure candidates on **your** labelled sample |
+| A 2-point score gap is read as a real gap | Paired bootstrap + Holm correction say whether it is noise |
+| Only LLMs are compared | Hosted LLMs, local LLMs and classic ML side by side |
+| Cost is an afterthought | Cost at your expected volume and latency sit next to every score |
+| You get a ranking | You get a recommendation, or an honest "cannot separate" with the number of extra labels needed |
+
+```mermaid
+flowchart LR
+    D["Your labelled sample<br>(CSV / JSONL)"] --> R["Run every candidate<br>LLM · Ollama · scikit-learn"]
+    R --> S["Score, cost, latency<br>95% confidence intervals"]
+    S --> T{"Statistically tied<br>with the best?"}
+    T -- yes --> W["Recommend the cheapest<br>tied model"]
+    T -- "data cannot tell" --> N["Say so + how many<br>more labels are needed"]
+    W --> H["Offline report.html"]
+    N --> H
+```
 
 ## Two-minute demo
 
@@ -63,7 +108,8 @@ tiebreak report runs/<run>        # regenerate the report, no model calls
 tiebreak diagnose runs/<run>      # suspected labelling mistakes, disagreements
 ```
 
-### Reasoning ("thinking") models
+<details>
+<summary><b>Reasoning ("thinking") models</b></summary>
 
 tiebreak asks for short answers (`temperature: 0`, `max_tokens: 64`). A reasoning model can spend all 64 tokens on hidden thinking and return an empty answer; tiebreak then reports a high invalid rate and says so. Override the defaults per candidate through `params`:
 
@@ -74,7 +120,10 @@ tiebreak asks for short answers (`temperature: 0`, `max_tokens: 64`). A reasonin
 
 `params` are passed straight to LiteLLM and replace the defaults; they are part of the cache key, so changing them re-runs the calls.
 
-### Rate limits (free tiers)
+</details>
+
+<details>
+<summary><b>Rate limits (free tiers)</b></summary>
 
 Hosted free tiers allow only a few requests per minute. Set `requests_per_minute` on a candidate and tiebreak spaces its calls, and use `--concurrency 1` so calls do not burst:
 
@@ -84,7 +133,10 @@ Hosted free tiers allow only a few requests per minute. Set `requests_per_minute
 
 If a provider still answers 429, tiebreak waits 8, 16, 32 then 60 seconds between up to six retries (other errors retry with a 1, 2, 4 second backoff). A 429 that names a per-day quota is not retried (waiting minutes cannot clear it): the call is recorded with that reason and the warning shows it, so use a model with a bigger daily quota or come back after the reset. Calls that still fail are recorded as errors, the candidate is excluded with a warning, and `--resume` retries only those calls.
 
-### Verify with your own provider
+</details>
+
+<details>
+<summary><b>Verify with your own provider</b></summary>
 
 The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm]"` and your own key):
 
@@ -107,6 +159,8 @@ tiebreak run --task task.yaml --models my-models.yaml --data mydata.csv --yes-se
 ```
 
 Use a small labelled sample (40 to 60 rows) and add the model to `pricing.yaml` (`--pricing`) if `estimate` reports its price as unknown, because the cap cannot be enforced without a price. The result will usually be inconclusive at that size; what you are checking is that the calls succeed, costs are recorded and the report opens.
+
+</details>
 
 ## Notebook
 
