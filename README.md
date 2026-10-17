@@ -8,6 +8,7 @@
 <h3 align="center">Stop paying for the biggest model.<br>Pick the cheapest one that is statistically tied with the best, on your own data.</h3>
 
 <p align="center">
+  <a href="https://github.com/mugil0095/tiebreak/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mugil0095/tiebreak/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-F0987D"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-6554C0">
   <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2ea44f">
