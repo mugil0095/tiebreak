@@ -15,10 +15,11 @@ def client(tmp_path, **kw):
     return TestClient(webapp.create_app(tmp_path / "runs", **kw), base_url="http://127.0.0.1:8765")
 
 
-def post(c, files=None, **extra):
+def post(c, files=None, headers=None, **extra):
     f = files or demo_files()
     form = {"task_yaml": f["task_yaml"], "models_yaml": f["models_yaml"], "n_boot": "200", "concurrency": "1", **extra}
-    return c.post("/api/runs", data=form, files={"data": ("data.csv", f["data_csv"].encode(), "text/csv")})
+    return c.post("/api/runs", data=form, headers=headers,
+                  files={"data": ("data.csv", f["data_csv"].encode(), "text/csv")})
 
 
 def wait_done(c, run_id, seconds=90):
@@ -116,15 +117,20 @@ def test_trailing_slash_variants_only_ever_reach_a_valid_id(tmp_path, bad):
     assert r.json().get("id", "run-20250101-000000") == "run-20250101-000000"
 
 
-def test_run_id_is_checked_before_any_filesystem_access(tmp_path, monkeypatch):
+@pytest.mark.parametrize("bad", ["run-1", "run-20250101-000000%0A", "run-20250101-000000-", "RUN-20250101-000000"])
+def test_run_id_is_checked_by_the_handler_before_any_filesystem_access(tmp_path, monkeypatch, bad):
+    # These ids contain no slash, so the router passes them to the handler; the regex must stop them there.
     c = client(tmp_path)
 
     def boom(*a, **k):
         raise AssertionError("filesystem touched before the id was validated")
 
     monkeypatch.setattr(webapp.Path, "is_dir", boom)
-    assert c.get("/api/runs/..").status_code == 404
-    assert c.get("/api/runs/..%2f..%2fetc/report").status_code == 404
+    seen = []
+    real = webapp.RUN_ID.fullmatch
+    monkeypatch.setattr(webapp, "RUN_ID", type("R", (), {"fullmatch": staticmethod(lambda x: seen.append(x) or real(x))}))
+    assert c.get(f"/api/runs/{bad}").status_code == 404
+    assert seen == [bad.replace("%0A", "\n")]  # the handler itself ran the check and rejected it
 
 
 def test_listing_ignores_folders_that_are_not_runs(tmp_path):
@@ -158,21 +164,35 @@ def test_failed_validation_releases_the_lock(tmp_path):
     wait_done(c, ok.json()["id"])
 
 
-def test_failure_is_one_line_without_traceback_and_no_key_in_any_response(tmp_path, monkeypatch):
-    secret = "sk-test-SECRET-1234567890"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", secret)
-    monkeypatch.setenv("OPENAI_API_KEY", secret)
+def test_failure_is_one_line_and_the_key_value_never_appears_in_any_response(tmp_path, monkeypatch):
+    secret = "sk-test-SECRET-1234567890abcdef"
+    monkeypatch.setenv("MY_PROVIDER_KEY", secret)
+    f = demo_files()
+    f["models_yaml"] = ("- {name: m, kind: llm, provider: mock, model: m, api_key_env: MY_PROVIDER_KEY, "
+                        "params: {accuracy: 0.9, cost_per_call: 0.01}}\n")
 
     def bad(*a, **k):
-        raise RuntimeError("line one\n  File \"x.py\", line 3\nTraceback (most recent call last)")
+        raise RuntimeError(f"auth failed for {secret}\n  File \"x.py\", line 3\nTraceback (most recent call last)")
 
     monkeypatch.setattr(webapp, "run_experiment", bad)
     c = client(tmp_path)
-    rid = post(c).json()["id"]
+    rid = post(c, f).json()["id"]
     s = wait_done(c, rid)
-    assert s["state"] == "failed" and "\n" not in s["error"]
+    assert s["state"] == "failed" and "\n" not in s["error"] and "[redacted]" in s["error"]
     bodies = [c.get(p).text for p in ("/api/demo", "/api/runs", f"/api/runs/{rid}", f"/api/runs/{rid}/report")]
     assert all(secret not in b for b in bodies)
+
+
+def test_secret_in_a_config_error_is_redacted(tmp_path, monkeypatch):
+    secret = "sk-test-SECRET-1234567890abcdef"
+    monkeypatch.setenv("SOME_API_KEY", secret)
+
+    def leaky(path):
+        raise ValueError(f"bad value {secret} in {path}")
+
+    monkeypatch.setattr(webapp, "load_task", leaky)
+    r = post(client(tmp_path))
+    assert r.status_code == 400 and secret not in r.text and "[redacted]" in r.json()["error"]
 
 
 def test_second_run_while_active_is_409_and_lock_is_released_after_failure(tmp_path, monkeypatch):
@@ -195,3 +215,141 @@ def test_second_run_while_active_is_409_and_lock_is_released_after_failure(tmp_p
     assert s["state"] == "failed" and "boom" in s["error"]
     monkeypatch.setattr(webapp, "run_experiment", real)
     assert post(c).status_code == 200  # the lock was released
+
+
+def test_security_headers_are_set(tmp_path):
+    r = client(tmp_path).get("/api/runs")
+    assert r.headers["x-frame-options"] == "DENY" and r.headers["x-content-type-options"] == "nosniff"
+
+
+# ---- cross-site defence -------------------------------------------------------------------------------------
+
+def _lock_is_free_and_nothing_left(c, tmp_path):
+    assert not list((tmp_path / "runs").glob("run-*"))
+    ok = post(c)  # a normal run starts, so the lock was not taken
+    assert ok.status_code == 200
+    wait_done(c, ok.json()["id"])
+
+
+@pytest.mark.parametrize("origin", ["https://evil.example", "http://evil.example:8765", "null",
+                                    "http://127.0.0.1", "http://127.0.0.1:9999", "http://localhost:8765",
+                                    "https://127.0.0.1:8765"])
+def test_post_with_a_foreign_origin_is_403_before_anything_happens(tmp_path, origin):
+    c = client(tmp_path)
+    r = post(c, headers={"origin": origin})
+    assert r.status_code == 403 and "\n" not in r.json()["error"].strip()
+    _lock_is_free_and_nothing_left(c, tmp_path)
+
+
+def test_post_with_cross_site_fetch_metadata_is_403(tmp_path):
+    c = client(tmp_path)
+    for site in ("cross-site", "same-site"):
+        assert post(c, headers={"sec-fetch-site": site}).status_code == 403
+    _lock_is_free_and_nothing_left(c, tmp_path)
+
+
+def test_same_origin_none_fetch_site_and_no_origin_posts_work(tmp_path):
+    c = client(tmp_path)
+    r = post(c, headers={"origin": "http://127.0.0.1:8765", "sec-fetch-site": "same-origin"})
+    assert r.status_code == 200
+    wait_done(c, r.json()["id"])
+    r = post(c, headers={"origin": "HTTP://127.0.0.1:8765", "sec-fetch-site": "none"})
+    assert r.status_code == 200
+    wait_done(c, r.json()["id"])
+
+
+def test_get_with_a_foreign_origin_still_works(tmp_path):
+    c = client(tmp_path)
+    assert c.get("/api/runs", headers={"origin": "https://evil.example", "sec-fetch-site": "cross-site"}).status_code == 200
+
+
+# ---- lock-leak paths and input limits -----------------------------------------------------------------------
+
+def test_new_run_dir_failure_releases_the_lock(tmp_path, monkeypatch):
+    c = client(tmp_path)
+    real = webapp.new_run_dir
+
+    def broken(*a):
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(webapp, "new_run_dir", broken)
+    r = post(c)
+    assert r.status_code == 400 and "disk on fire" in r.json()["error"]
+    monkeypatch.setattr(webapp, "new_run_dir", real)
+    ok = post(c)
+    assert ok.status_code == 200
+    wait_done(c, ok.json()["id"])
+
+
+def test_thread_start_failure_releases_the_lock_and_marks_the_run_failed(tmp_path, monkeypatch):
+    c = client(tmp_path)
+    real_start = webapp.threading.Thread.start
+
+    def start(self):
+        if getattr(self._target, "__name__", "") == "work":
+            raise RuntimeError("can't start new thread")
+        return real_start(self)
+
+    monkeypatch.setattr(webapp.threading.Thread, "start", start)
+    r = post(c)
+    assert r.status_code == 500 and "\n" not in r.json()["error"].strip()
+    listed = c.get("/api/runs").json()
+    assert len(listed) == 1
+    st = c.get(f"/api/runs/{listed[0]['id']}").json()
+    assert st["state"] == "failed" and "thread" in st["error"]
+    monkeypatch.setattr(webapp.threading.Thread, "start", real_start)
+    ok = post(c)  # not 409: the lock was released
+    assert ok.status_code == 200
+    wait_done(c, ok.json()["id"])
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # SystemExit is deliberate
+def test_base_exception_in_the_worker_does_not_leave_the_run_running(tmp_path, monkeypatch):
+    real = webapp.run_experiment
+
+    def die(*a, **k):
+        raise SystemExit(3)
+
+    monkeypatch.setattr(webapp, "run_experiment", die)
+    c = client(tmp_path)
+    first = post(c)
+    s = wait_done(c, first.json()["id"])
+    assert s["state"] == "failed" and s["error"]
+    monkeypatch.setattr(webapp, "run_experiment", real)
+    ok = post(c)
+    assert ok.status_code == 200
+    wait_done(c, ok.json()["id"])
+
+
+@pytest.mark.parametrize("extra", [{"max_cost": "-1"}, {"max_cost": "nan"}, {"max_cost": "inf"},
+                                   {"n_boot": "1000001"}])
+def test_numeric_limits_are_422(tmp_path, extra):
+    c = client(tmp_path)
+    assert post(c, **extra).status_code == 422
+    assert not list((tmp_path / "runs").glob("run-*"))
+
+
+@pytest.mark.parametrize("field", ["task_yaml", "models_yaml", "pricing_yaml"])
+def test_oversized_yaml_is_a_one_line_400_error(tmp_path, field):
+    c = client(tmp_path)
+    f = demo_files()
+    big = "# " + "x" * 70_000 + "\n"
+    if field == "pricing_yaml":
+        r = post(c, f, pricing_yaml=big)
+    else:
+        f[field] = f[field] + big
+        r = post(c, f)
+    assert r.status_code == 400 and set(r.json()) == {"error"} and "\n" not in r.json()["error"].strip()
+    assert not list((tmp_path / "runs").glob("run-*"))
+
+
+def test_corrupt_results_json_reads_as_not_done(tmp_path):
+    c = client(tmp_path)
+    d = tmp_path / "runs" / "run-20250101-000000"
+    d.mkdir(parents=True)
+    for payload in (b'{"recommendation": ', b"\xff\xfe\x00garbage", b""):
+        (d / "results.json").write_bytes(payload)
+        st = c.get("/api/runs/run-20250101-000000")
+        assert st.status_code == 200 and st.json()["state"] == "unknown"
+        assert c.get("/api/runs/run-20250101-000000/report").status_code == 404
+        assert c.get("/api/runs").status_code == 200

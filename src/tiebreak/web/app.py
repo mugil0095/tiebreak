@@ -13,22 +13,36 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from ..config import load_models, load_pricing, load_task
 from ..data import load_dataset
 from ..demo import demo_files
-from ..engine import SafetyError, is_hosted, new_run_dir, run_experiment
+from ..engine import SafetyError, _collect_secrets, is_hosted, new_run_dir, run_experiment
 from ..report import render_report
 
-RUN_ID = re.compile(r"^run-\d{8}-\d{6}(-\d+)?$")
+RUN_ID = re.compile(r"run-[0-9]{8}-[0-9]{6}(-[0-9]+)?")
 # Checked against the raw Host header (not a parsed URL: "evil.com:80@localhost" would parse as localhost).
-LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$", re.IGNORECASE)
+LOCAL_HOST = re.compile(r"(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?", re.IGNORECASE)
 STATIC = Path(__file__).parent / "static"
+MAX_YAML_BYTES = 64 * 1024
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+SECURITY_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff"}
 
 
-def _err(status: int, message: str) -> JSONResponse:
-    return JSONResponse({"error": " ".join(str(message).split())[:300]}, status_code=status)
+def _clean(message, models=()) -> str:
+    """One line, secrets replaced, capped: the only form in which error text leaves the web layer."""
+    text = str(message)
+    for secret in _collect_secrets(list(models)):
+        text = text.replace(secret, "[redacted]")
+    return " ".join(text.split())[:300]
+
+
+def _err(status: int, message, models=()) -> JSONResponse:
+    return JSONResponse({"error": _clean(message, models)}, status_code=status, headers=SECURITY_HEADERS)
 
 
 def _read_results(run_dir: Path):
     p = run_dir / "results.json"
-    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except ValueError:  # half-written or corrupt results.json (JSON and unicode errors are ValueErrors)
+        return None
 
 
 def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
@@ -39,9 +53,19 @@ def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
-        if not LOCAL_HOST.match(request.headers.get("host", "")):
+        host = request.headers.get("host", "")
+        if not LOCAL_HOST.fullmatch(host):
             return _err(403, "this app only answers requests addressed to localhost")
-        return await call_next(request)
+        if request.method not in SAFE_METHODS:
+            # Cross-site defence: a web page open in the browser can POST a form to localhost.
+            origin = request.headers.get("origin")
+            if origin is not None and origin.lower() != f"http://{host}".lower():
+                return _err(403, "cross-site request refused")
+            if request.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
+                return _err(403, "cross-site request refused")
+        response = await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        return response
 
     def run_dir_for(run_id: str) -> Path | None:
         # The id is validated before any filesystem access.
@@ -69,18 +93,23 @@ def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
         return out
 
     @app.post("/api/runs")
-    async def create_run(
+    def create_run(
         task_yaml: str = Form(...), models_yaml: str = Form(...), data: UploadFile = File(...),
         pricing_yaml: str = Form(""), allow_hosted: bool = Form(False), local_only: bool = Form(False),
-        max_cost: float | None = Form(None), concurrency: int = Form(4, ge=1, le=16), n_boot: int = Form(10000, ge=100),
+        max_cost: float | None = Form(None, ge=0, allow_inf_nan=False),
+        concurrency: int = Form(4, ge=1, le=16), n_boot: int = Form(10000, ge=100, le=1_000_000),
     ):
-        content = await data.read(int(max_upload_mb * 1024 * 1024) + 1)
+        content = data.file.read(int(max_upload_mb * 1024 * 1024) + 1)
         if len(content) > max_upload_mb * 1024 * 1024:
             return _err(413, f"the data file is larger than {max_upload_mb:g} MB")
+        for name, text in (("task", task_yaml), ("models", models_yaml), ("pricing", pricing_yaml)):
+            if len(text.encode("utf-8")) > MAX_YAML_BYTES:
+                return _err(400, f"the {name} settings are larger than {MAX_YAML_BYTES // 1024} KB")
         if not lock.acquire(blocking=False):
             return _err(409, "a run is already in progress; wait for it to finish")
-        run_dir = new_run_dir(runs)
+        run_dir = models = None
         try:
+            run_dir = new_run_dir(runs)
             inputs = run_dir / "inputs"
             inputs.mkdir(parents=True)
             (inputs / "task.yaml").write_text(task_yaml, encoding="utf-8")
@@ -99,9 +128,10 @@ def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
                 raise SafetyError("hosted candidates send example text to third-party APIs; "
                                   "tick the consent box to allow it")
         except Exception as e:  # config, data and safety problems are the user's to fix: one line, no folder left
-            shutil.rmtree(run_dir, ignore_errors=True)
+            if run_dir is not None:
+                shutil.rmtree(run_dir, ignore_errors=True)
             lock.release()
-            return _err(400, e)
+            return _err(400, e, models or ())
 
         run_id = run_dir.name
         n_llm = sum(1 for m in models if m.kind == "llm")
@@ -113,11 +143,18 @@ def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
                                concurrency=concurrency, allow_hosted=allow_hosted, local_only=local_only, n_boot=n_boot)
                 state[run_id]["state"] = "done"
             except Exception as e:  # shown to the user as one line; the traceback is not exposed
-                state[run_id].update(state="failed", error=" ".join(str(e).split())[:300])
+                state[run_id].update(state="failed", error=_clean(e, models))
             finally:
+                if state[run_id]["state"] == "running":  # a BaseException got past the handler
+                    state[run_id].update(state="failed", error="the run stopped unexpectedly")
                 lock.release()
 
-        threading.Thread(target=work, daemon=True).start()
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except Exception as e:  # e.g. cannot start a thread: never leave the lock held
+            state[run_id].update(state="failed", error=_clean(e, models))
+            lock.release()
+            return _err(500, f"could not start the run: {e}", models)
         return {"id": run_id}
 
     @app.get("/api/runs/{run_id}")
