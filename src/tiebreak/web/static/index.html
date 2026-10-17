@@ -60,7 +60,7 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
 <body>
 <main>
 <header>
-  <img src="/static/symbol.svg" alt="tiebreak logo" height="40">
+  <img src="/static/symbol.svg" alt="" height="40">
   <h1>tiebreak</h1>
 </header>
 <p>Compare candidate models on your own labelled data and find the cheapest one that is statistically tied with the best. Everything runs on this computer.</p>
@@ -88,6 +88,7 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
       <input id="local_only" type="checkbox" name="local_only">
       <span>Local only: refuse to run any hosted candidate</span>
     </label>
+    <p class="muted">Only paste a models.yaml you wrote or trust: a candidate's base_url and api_key_env decide which server receives the key from your environment.</p>
   </div>
   <div class="row">
     <div class="field">
@@ -107,12 +108,12 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
 
 <div id="alert" role="alert" hidden></div>
 
-<section id="status" aria-live="polite" hidden>
+<section id="status" hidden>
   <h2>Progress</h2>
-  <p>State: <span id="state"></span></p>
+  <p>State: <span id="state" aria-live="polite"></span></p>
   <label for="progress" class="muted" id="progress-label">Calls so far</label>
   <progress id="progress" max="1" value="0"></progress>
-  <div id="result" hidden>
+  <div id="result" aria-live="polite" hidden>
     <div id="recommendation"></div>
     <ul id="warnings"></ul>
   </div>
@@ -134,7 +135,7 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var form = $("run-form"), alertBox = $("alert"), timer = null;
+  var form = $("run-form"), alertBox = $("alert"), timer = null, demoCsv = null, inflight = false, failures = 0;
 
   function showError(msg) { alertBox.textContent = msg; alertBox.hidden = false; }
   function clearError() { alertBox.textContent = ""; alertBox.hidden = true; }
@@ -150,14 +151,19 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
 
   function setBusy(busy) { $("run-btn").disabled = busy; $("demo-btn").disabled = busy; }
 
+  $("data").addEventListener("change", function () { demoCsv = null; });  // a chosen file wins over the demo
+
   $("demo-btn").addEventListener("click", function () {
     clearError();
     fetch("/api/demo").then(function (r) { return r.json(); }).then(function (d) {
       $("task_yaml").value = d.task_yaml;
       $("models_yaml").value = d.models_yaml;
-      var dt = new DataTransfer();
-      dt.items.add(new File([d.data_csv], "data.csv", { type: "text/csv" }));
-      $("data").files = dt.files;
+      demoCsv = d.data_csv;  // kept here so Run works even where the file input cannot be filled
+      try {
+        var dt = new DataTransfer();
+        dt.items.add(new File([d.data_csv], "data.csv", { type: "text/csv" }));
+        $("data").files = dt.files;
+      } catch (e) { /* the submit handler adds the demo file instead */ }
     }).catch(function () { showError("Could not load the demo."); });
   });
 
@@ -197,14 +203,23 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
   function stopPolling() { if (timer) { clearInterval(timer); timer = null; } setBusy(false); }
 
   function poll(id) {
+    if (inflight) return;  // never overlap requests
+    inflight = true;
     fetch("/api/runs/" + encodeURIComponent(id)).then(function (r) {
       return r.json().then(function (b) { return { r: r, b: b }; });
     }).then(function (x) {
+      failures = 0;
       if (!x.r.ok) { stopPolling(); showError(errorOf(x.r, x.b)); return; }
       renderStatus(x.b);
-      if (x.b.state === "done") { stopPolling(); showReport(id); loadRecent(); }
-      else if (x.b.state === "failed") { stopPolling(); showError(x.b.error || "The run failed."); loadRecent(); }
-    }).catch(function () { stopPolling(); showError("Lost contact with the app. Is tiebreak serve still running?"); });
+      if (x.b.state === "running") return;
+      stopPolling();
+      if (x.b.state === "done") showReport(id);
+      else showError(x.b.error || (x.b.state === "failed" ? "The run failed." : "The run ended in an unknown state."));
+      loadRecent();
+    }).catch(function () {
+      failures += 1;  // one failed request is not the end: retry on the next tick
+      if (failures >= 3) { stopPolling(); showError("Lost contact with the app. Is tiebreak serve still running?"); }
+    }).then(function () { inflight = false; });
   }
 
   form.addEventListener("submit", function (ev) {
@@ -214,8 +229,10 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
       showError("Fill in the task and the candidate models, or click Load demo.");
       return;
     }
-    if (!$("data").files.length) { showError("Choose a data file, or click Load demo."); return; }
+    var hasFile = $("data").files.length > 0;
+    if (!hasFile && demoCsv === null) { showError("Choose a data file, or click Load demo."); return; }
     var fd = new FormData(form);
+    if (!hasFile) { fd.delete("data"); fd.append("data", new File([demoCsv], "data.csv", { type: "text/csv" })); }
     if (!String(fd.get("max_cost") || "").trim()) fd.delete("max_cost");
     setBusy(true);
     fetch("/api/runs", { method: "POST", body: fd }).then(function (r) {
@@ -225,6 +242,7 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
       $("report-section").hidden = true;
       renderStatus({ state: "running", calls_done: 0, calls_total: 0 });
       var id = x.b.id;
+      failures = 0;
       poll(id);
       timer = setInterval(function () { poll(id); }, 2000);
     }).catch(function () { setBusy(false); showError("Could not reach the app. Is tiebreak serve still running?"); });
@@ -241,7 +259,11 @@ iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--b
         var label = run.id + " - " + run.state;
         if (run.winner) label += " - " + run.winner + (run.status ? " (" + run.status + ")" : "");
         b.textContent = label;
-        b.addEventListener("click", function () { clearError(); showReport(run.id); });
+        b.addEventListener("click", function () {
+          clearError();
+          if (run.state === "done") showReport(run.id);
+          else showError("Run " + run.id + " is " + run.state + ": only finished runs have a report.");
+        });
         li.appendChild(b);
         ul.appendChild(li);
       });

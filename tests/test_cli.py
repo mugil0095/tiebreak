@@ -260,3 +260,13 @@ def test_serve_without_web_extra_gives_a_clean_message(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake)
     r = runner.invoke(app, ["serve"])
     assert r.exit_code == 2 and 'tiebreak[web]' in r.output
+
+
+def test_serve_binds_loopback_only_and_passes_options(monkeypatch, tmp_path):
+    import uvicorn
+    seen = {}
+    monkeypatch.setattr(uvicorn, "run", lambda application, **kw: seen.update(app=application, **kw))
+    r = runner.invoke(app, ["serve", "--port", "9123", "--runs-dir", str(tmp_path / "r")])
+    assert r.exit_code == 0, r.output
+    assert seen["host"] == "127.0.0.1" and seen["port"] == 9123 and "127.0.0.1:9123" in r.output
+    assert seen["app"].title == "tiebreak"

@@ -369,8 +369,11 @@ def test_index_is_one_offline_page_with_the_run_form(tmp_path):
     assert not re.search(r'(src|href)="https?://', html) and "cdn" not in html.lower()
     assert 'sandbox' in html            # the report iframe is sandboxed
     assert "allow-scripts" not in html and "allow-same-origin" not in html
-    assert "api_key" not in html.lower() and "password" not in html.lower()  # the page never asks for a key
+    # the page never asks for a key: no key/password input (the trust note may mention the api_key_env setting)
+    assert "password" not in html.lower() and not re.search(r'name="[^"]*(key|token|secret)', html, re.I)
+    assert "Only paste a models.yaml you wrote or trust" in html
     assert "innerhtml" not in html.lower()  # server strings go in through textContent only
+    assert not re.search(r"outerHTML|insertAdjacentHTML|document\.write|eval\(", html)
     assert 'href="/static/favicon.svg"' in html and 'src="/static/symbol.svg"' in html
 
 
@@ -385,3 +388,48 @@ def test_static_serves_the_brand_files_and_no_traversal(tmp_path):
         assert r.status_code in (400, 404) and "create_app" not in r.text, path
     # still behind the Host check
     assert c.get("/static/favicon.svg", headers={"host": "evil.example"}).status_code == 403
+
+
+def _upload(c, name, content, f=None):
+    f = f or demo_files()
+    form = {"task_yaml": f["task_yaml"], "models_yaml": f["models_yaml"], "n_boot": "200", "concurrency": "1"}
+    return c.post("/api/runs", data=form, files={"data": (name, content, "application/octet-stream")})
+
+
+def test_jsonl_upload_runs_to_done(tmp_path):
+    import pandas as pd
+    c = client(tmp_path)
+    csv_text = demo_files()["data_csv"]
+    rows = pd.read_csv(__import__("io").StringIO(csv_text)).head(60)
+    r = _upload(c, "data.JSONL", rows.to_json(orient="records", lines=True).encode())
+    assert r.status_code == 200, r.text
+    assert wait_done(c, r.json()["id"])["state"] == "done"
+
+
+def test_unsupported_upload_type_is_a_one_line_400_and_leaves_no_folder(tmp_path):
+    c = client(tmp_path)
+    for name in ("data.txt", "", "data"):
+        r = _upload(c, name, b"a,b" + bytes([10]) + b"1,2")
+        assert r.status_code in (400, 422), (name, r.status_code)
+        if r.status_code == 400:
+            assert chr(10) not in r.json()["error"].strip() and ".csv" in r.json()["error"]
+    assert not list((tmp_path / "runs").glob("run-*"))
+
+
+def test_report_route_is_script_inert_and_other_routes_are_not_sandboxed(tmp_path):
+    c = client(tmp_path)
+    run_id = post(c).json()["id"]
+    wait_done(c, run_id)
+    rep = c.get(f"/api/runs/{run_id}/report")
+    assert rep.headers["content-security-policy"] == "sandbox; frame-ancestors 'self'"
+    assert c.get("/").headers["content-security-policy"] == "frame-ancestors 'self'"
+    assert c.get(f"/api/runs/{run_id}").headers["content-security-policy"] == "frame-ancestors 'self'"
+
+
+def test_error_text_never_contains_the_runs_folder_path(tmp_path):
+    c = client(tmp_path)
+    f = demo_files()
+    f["models_yaml"] = "not: [a valid list"
+    err = post(c, f).json()["error"]
+    assert str(tmp_path) not in err and str((tmp_path / "runs").resolve()) not in err
+    assert str(tmp_path).replace("\\", "/") not in err

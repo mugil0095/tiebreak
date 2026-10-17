@@ -5,3 +5,5 @@ dist/
 runs/
 .pytest_cache/
 .superpowers/
+
+google-test/

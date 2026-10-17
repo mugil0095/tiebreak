@@ -131,6 +131,8 @@ A single page where you paste the task and models, pick a data file (or click **
 - API keys are read from environment variables, as in the CLI; the page never asks for or shows a key.
 - One run at a time; a second one is refused until the first finishes. Past runs are kept in `--runs-dir` (default `runs/`) and listed on the page.
 - Hosted candidates send example text to third parties, so the page has a consent box that must be ticked first (and a local-only box that refuses them).
+- Only paste a models.yaml you wrote or trust: a candidate's base_url and api_key_env decide which server receives the key from your environment.
+- There is no authentication: anyone logged in on the same computer can reach 127.0.0.1:PORT while it runs.
 - It is not a hosted service and has no accounts or authentication; do not expose it to a network.
 
 ## How the decision works
