@@ -55,6 +55,7 @@ flowchart LR
 ## Two-minute demo
 
 ```bash
+git clone https://github.com/mugil0095/tiebreak && cd tiebreak
 pip install -e ".[dev]"
 tiebreak init --demo --dir demo
 tiebreak run --task demo/task.yaml --models demo/models.yaml --data demo/data.csv
