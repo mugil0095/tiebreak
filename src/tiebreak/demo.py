@@ -65,10 +65,16 @@ Try:
 DEMO_FILES = ("data.csv", "task.yaml", "models.yaml", "README.txt")
 
 
+def demo_files() -> dict:
+    return {"task_yaml": _DEMO_TASK, "models_yaml": _DEMO_MODELS,
+            "data_csv": make_reviews(300, 0, noise=0.12).to_csv(index=False)}
+
+
 def write_demo(directory) -> None:
     d = Path(directory)
     d.mkdir(parents=True, exist_ok=True)
-    make_reviews(300, 0, noise=0.12).to_csv(d / "data.csv", index=False)
-    (d / "task.yaml").write_text(_DEMO_TASK, encoding="utf-8")
-    (d / "models.yaml").write_text(_DEMO_MODELS, encoding="utf-8")
+    files = demo_files()
+    (d / "data.csv").write_text(files["data_csv"], encoding="utf-8", newline="")
+    (d / "task.yaml").write_text(files["task_yaml"], encoding="utf-8")
+    (d / "models.yaml").write_text(files["models_yaml"], encoding="utf-8")
     (d / "README.txt").write_text(_DEMO_README, encoding="utf-8")
