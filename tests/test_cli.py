@@ -241,3 +241,22 @@ def test_ctrl_c_prints_a_resume_hint_and_exits_130_without_a_traceback(tmp_path,
     r = _run(work)
     assert r.exit_code == 130 and "Traceback" not in r.output
     assert "--resume" in r.output and "tiebreak run" in r.output and "interrupted" in r.output.lower()
+
+
+def test_serve_help_lists_the_options():
+    r = runner.invoke(app, ["serve", "--help"])
+    assert r.exit_code == 0 and "--port" in r.output and "--runs-dir" in r.output
+
+
+def test_serve_without_web_extra_gives_a_clean_message(monkeypatch):
+    import builtins
+    real = builtins.__import__
+
+    def fake(name, *a, **k):
+        if name.split(".")[0] in {"uvicorn", "fastapi"}:
+            raise ImportError("no module")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+    r = runner.invoke(app, ["serve"])
+    assert r.exit_code == 2 and 'tiebreak[web]' in r.output

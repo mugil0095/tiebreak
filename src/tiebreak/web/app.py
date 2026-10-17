@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..config import load_models, load_pricing, load_task
 from ..data import load_dataset
@@ -183,4 +184,5 @@ def create_app(runs_dir="runs", max_upload_mb: float = 20) -> FastAPI:
             return _err(404, "no report yet")
         return HTMLResponse(render_report(data, redact))
 
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")  # brand icons; the Host/Origin middleware still applies
     return app

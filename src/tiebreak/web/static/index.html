@@ -1,1 +1,255 @@
-<!doctype html><title>tiebreak</title><p>tiebreak web app (UI arrives in Task 3)</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiebreak</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #faf8f6; --surface: #ffffff; --text: #20212B; --muted: #55576A; --border: #cfcac4;
+  --accent: #B8472F; --on-accent: #ffffff; --brand: #C9553D; --focus: #B8472F;
+  --ok: #1f6b3a; --bad: #a3231a; --bad-bg: #fdecea; --ok-bg: #e9f5ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171d; --surface: #20212B; --text: #ececf1; --muted: #a9abb9; --border: #3b3d4c;
+    --accent: #F0987D; --on-accent: #20212B; --brand: #F0987D; --focus: #F0987D;
+    --ok: #8fd6a2; --bad: #ffb1a8; --bad-bg: #3a1f1c; --ok-bg: #1b2e22;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
+header { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+header img { height: 40px; width: auto; display: block; }
+h1 { margin: 0; font-size: 1.6rem; letter-spacing: .02em; }
+h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; }
+p { margin: .25rem 0 .75rem; }
+.muted { color: var(--muted); font-size: .9rem; }
+form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+label { display: block; font-weight: 600; margin-bottom: .25rem; }
+.field { margin-bottom: 1rem; }
+textarea, input[type=number], input[type=file] {
+  width: 100%; font: inherit; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: .5rem;
+}
+textarea { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; min-height: 8rem; resize: vertical; }
+.check { display: flex; gap: .6rem; align-items: flex-start; font-weight: 400; margin-bottom: .6rem; }
+.check input { width: 1.2rem; height: 1.2rem; margin-top: .2rem; flex: none; accent-color: var(--accent); }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+.buttons { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .5rem; }
+button { font: inherit; font-weight: 600; border-radius: 6px; padding: .6rem 1.1rem; cursor: pointer; min-height: 2.75rem;
+  border: 2px solid var(--accent); background: transparent; color: var(--accent); }
+button.primary { background: var(--accent); color: var(--on-accent); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+#alert { margin-top: 1rem; padding: .6rem .8rem; border: 2px solid var(--bad); border-radius: 6px; background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+#status { margin-top: 1rem; }
+#state { font-weight: 700; }
+progress { width: 100%; height: 1rem; accent-color: var(--accent); }
+#result { margin-top: .5rem; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: 6px; background: var(--ok-bg); }
+#warnings { margin: .4rem 0 0 1.2rem; padding: 0; font-size: .9rem; }
+#recent { list-style: none; margin: 0; padding: 0; }
+#recent li { margin-bottom: .4rem; }
+#recent button { min-height: 2.5rem; font-weight: 400; text-align: left; }
+iframe { width: 100%; height: 75vh; min-height: 28rem; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <img src="/static/symbol.svg" alt="tiebreak logo" height="40">
+  <h1>tiebreak</h1>
+</header>
+<p>Compare candidate models on your own labelled data and find the cheapest one that is statistically tied with the best. Everything runs on this computer.</p>
+<noscript><p role="alert">This page needs JavaScript to run an experiment.</p></noscript>
+
+<form id="run-form" novalidate>
+  <div class="field">
+    <label for="task_yaml">Task settings (YAML)</label>
+    <textarea id="task_yaml" name="task_yaml" spellcheck="false"></textarea>
+  </div>
+  <div class="field">
+    <label for="models_yaml">Candidate models (YAML)</label>
+    <textarea id="models_yaml" name="models_yaml" spellcheck="false"></textarea>
+  </div>
+  <div class="field">
+    <label for="data">Labelled data file (.csv, .jsonl or .ndjson)</label>
+    <input id="data" type="file" name="data" accept=".csv,.jsonl,.ndjson">
+  </div>
+  <div class="field">
+    <label class="check" for="allow_hosted">
+      <input id="allow_hosted" type="checkbox" name="allow_hosted">
+      <span>Allow sending example text to hosted providers (needed if any candidate is a hosted API; keys are read from your environment, never typed here)</span>
+    </label>
+    <label class="check" for="local_only">
+      <input id="local_only" type="checkbox" name="local_only">
+      <span>Local only: refuse to run any hosted candidate</span>
+    </label>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="max_cost">Maximum cost in USD (optional)</label>
+      <input id="max_cost" type="number" name="max_cost" min="0" step="any" inputmode="decimal">
+    </div>
+    <div class="field">
+      <label for="concurrency">Parallel calls (1 to 16)</label>
+      <input id="concurrency" type="number" name="concurrency" value="1" min="1" max="16" step="1">
+    </div>
+  </div>
+  <div class="buttons">
+    <button type="button" id="demo-btn">Load demo</button>
+    <button type="submit" id="run-btn" class="primary">Run</button>
+  </div>
+</form>
+
+<div id="alert" role="alert" hidden></div>
+
+<section id="status" aria-live="polite" hidden>
+  <h2>Progress</h2>
+  <p>State: <span id="state"></span></p>
+  <label for="progress" class="muted" id="progress-label">Calls so far</label>
+  <progress id="progress" max="1" value="0"></progress>
+  <div id="result" hidden>
+    <div id="recommendation"></div>
+    <ul id="warnings"></ul>
+  </div>
+</section>
+
+<section aria-labelledby="recent-h">
+  <h2 id="recent-h">Recent runs</h2>
+  <p id="recent-empty" class="muted">No runs yet.</p>
+  <ul id="recent"></ul>
+</section>
+
+<section id="report-section" aria-labelledby="report-h" hidden>
+  <h2 id="report-h">Report</h2>
+  <iframe id="report-frame" sandbox title="tiebreak report"></iframe>
+</section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var form = $("run-form"), alertBox = $("alert"), timer = null;
+
+  function showError(msg) { alertBox.textContent = msg; alertBox.hidden = false; }
+  function clearError() { alertBox.textContent = ""; alertBox.hidden = true; }
+  function showReport(id) {
+    $("report-frame").src = "/api/runs/" + encodeURIComponent(id) + "/report";
+    $("report-section").hidden = false;
+  }
+  function errorOf(resp, body) {
+    if (body && typeof body.error === "string") return body.error;
+    if (resp.status === 422) return "Some fields are missing or invalid. Check the task, models and data file.";
+    return "The app answered with an error (" + resp.status + ").";
+  }
+
+  function setBusy(busy) { $("run-btn").disabled = busy; $("demo-btn").disabled = busy; }
+
+  $("demo-btn").addEventListener("click", function () {
+    clearError();
+    fetch("/api/demo").then(function (r) { return r.json(); }).then(function (d) {
+      $("task_yaml").value = d.task_yaml;
+      $("models_yaml").value = d.models_yaml;
+      var dt = new DataTransfer();
+      dt.items.add(new File([d.data_csv], "data.csv", { type: "text/csv" }));
+      $("data").files = dt.files;
+    }).catch(function () { showError("Could not load the demo."); });
+  });
+
+  function renderStatus(s) {
+    $("status").hidden = false;
+    $("state").textContent = s.state;
+    var total = s.calls_total, done = s.calls_done, bar = $("progress");
+    if (total > 0) {
+      bar.max = total; bar.value = Math.min(done, total);
+      $("progress-label").textContent = s.state === "running"
+        ? "Calls so far: " + done + " of about " + total + " (approximate)"
+        : "Calls made: " + done + " (up to " + total + " were planned)";
+    } else {
+      bar.removeAttribute("value");
+      $("progress-label").textContent = "Calls so far: " + done + " (no model calls expected, or not counted)";
+    }
+    var res = $("result"), rec = s.recommendation;
+    if (s.state === "done") {
+      res.hidden = false;
+      var line = "No recommendation: nothing completed the evaluation.";
+      if (rec) {
+        line = "Recommendation: " + rec.winner + " (" + rec.status + "). " + (rec.reason || "");
+      }
+      $("recommendation").textContent = line;
+      var ul = $("warnings");
+      ul.textContent = "";
+      (s.warnings || []).forEach(function (w) {
+        var li = document.createElement("li");
+        li.textContent = w;
+        ul.appendChild(li);
+      });
+    } else {
+      res.hidden = true;
+    }
+  }
+
+  function stopPolling() { if (timer) { clearInterval(timer); timer = null; } setBusy(false); }
+
+  function poll(id) {
+    fetch("/api/runs/" + encodeURIComponent(id)).then(function (r) {
+      return r.json().then(function (b) { return { r: r, b: b }; });
+    }).then(function (x) {
+      if (!x.r.ok) { stopPolling(); showError(errorOf(x.r, x.b)); return; }
+      renderStatus(x.b);
+      if (x.b.state === "done") { stopPolling(); showReport(id); loadRecent(); }
+      else if (x.b.state === "failed") { stopPolling(); showError(x.b.error || "The run failed."); loadRecent(); }
+    }).catch(function () { stopPolling(); showError("Lost contact with the app. Is tiebreak serve still running?"); });
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    clearError();
+    if (!$("task_yaml").value.trim() || !$("models_yaml").value.trim()) {
+      showError("Fill in the task and the candidate models, or click Load demo.");
+      return;
+    }
+    if (!$("data").files.length) { showError("Choose a data file, or click Load demo."); return; }
+    var fd = new FormData(form);
+    if (!String(fd.get("max_cost") || "").trim()) fd.delete("max_cost");
+    setBusy(true);
+    fetch("/api/runs", { method: "POST", body: fd }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (b) { return { r: r, b: b }; });
+    }).then(function (x) {
+      if (!x.r.ok || !x.b || !x.b.id) { setBusy(false); showError(errorOf(x.r, x.b)); return; }
+      $("report-section").hidden = true;
+      renderStatus({ state: "running", calls_done: 0, calls_total: 0 });
+      var id = x.b.id;
+      poll(id);
+      timer = setInterval(function () { poll(id); }, 2000);
+    }).catch(function () { setBusy(false); showError("Could not reach the app. Is tiebreak serve still running?"); });
+  });
+
+  function loadRecent() {
+    fetch("/api/runs").then(function (r) { return r.json(); }).then(function (runs) {
+      var ul = $("recent");
+      ul.textContent = "";
+      $("recent-empty").hidden = runs.length > 0;
+      runs.slice(0, 20).forEach(function (run) {
+        var li = document.createElement("li"), b = document.createElement("button");
+        b.type = "button";
+        var label = run.id + " - " + run.state;
+        if (run.winner) label += " - " + run.winner + (run.status ? " (" + run.status + ")" : "");
+        b.textContent = label;
+        b.addEventListener("click", function () { clearError(); showReport(run.id); });
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+    }).catch(function () { /* the list is optional */ });
+  }
+
+  loadRecent();
+})();
+</script>
+</body>
+</html>

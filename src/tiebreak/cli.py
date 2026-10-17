@@ -201,3 +201,17 @@ def diagnose(run_dir: Path):
         typer.echo(f"  ... and {len(mis) - MAX_LISTED} more")
     typer.echo(f"Examples where candidates disagree: {len(d.get('disagreement_ids') or [])}")
     typer.echo(f"Class balance: {d.get('class_balance', {})}")
+
+
+@app.command()
+def serve(port: int = typer.Option(8765, "--port", min=1024, max=65535, help="Port on 127.0.0.1."),
+          runs_dir: Path = typer.Option(Path("runs"), "--runs-dir", help="Where runs are stored.")):
+    """Start the local web app (this computer only)."""
+    try:
+        import uvicorn
+
+        from .web.app import create_app
+    except ImportError:
+        _fail(ImportError('the web app needs extra packages: pip install "tiebreak[web]"'))
+    typer.echo(f"tiebreak is running at http://127.0.0.1:{port}  (this computer only; Ctrl-C to stop)")
+    uvicorn.run(create_app(runs_dir), host="127.0.0.1", port=port, log_level="warning")

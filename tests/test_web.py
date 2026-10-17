@@ -358,3 +358,30 @@ def test_corrupt_results_json_reads_as_not_done(tmp_path):
         assert st.status_code == 200 and st.json()["state"] == "unknown"
         assert c.get("/api/runs/run-20250101-000000/report").status_code == 404
         assert c.get("/api/runs").status_code == 200
+
+
+import re  # noqa: E402
+
+
+def test_index_is_one_offline_page_with_the_run_form(tmp_path):
+    html = client(tmp_path).get("/").text
+    assert 'id="run-form"' in html and 'id="demo-btn"' in html and 'id="report-frame"' in html
+    assert not re.search(r'(src|href)="https?://', html) and "cdn" not in html.lower()
+    assert 'sandbox' in html            # the report iframe is sandboxed
+    assert "allow-scripts" not in html and "allow-same-origin" not in html
+    assert "api_key" not in html.lower() and "password" not in html.lower()  # the page never asks for a key
+    assert "innerhtml" not in html.lower()  # server strings go in through textContent only
+    assert 'href="/static/favicon.svg"' in html and 'src="/static/symbol.svg"' in html
+
+
+def test_static_serves_the_brand_files_and_no_traversal(tmp_path):
+    c = client(tmp_path)
+    for name in ("favicon.svg", "symbol.svg"):
+        r = c.get(f"/static/{name}")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    for path in ("/static/../app.py", "/static/%2e%2e/app.py", "/static/..%2fapp.py", "/static/%2e%2e%2fapp.py",
+                 "/static/index.html/../../app.py"):
+        r = c.get(path)
+        assert r.status_code in (400, 404) and "create_app" not in r.text, path
+    # still behind the Host check
+    assert c.get("/static/favicon.svg", headers={"host": "evil.example"}).status_code == 403
