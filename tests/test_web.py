@@ -219,7 +219,12 @@ def test_second_run_while_active_is_409_and_lock_is_released_after_failure(tmp_p
 
 def test_security_headers_are_set(tmp_path):
     r = client(tmp_path).get("/api/runs")
-    assert r.headers["x-frame-options"] == "DENY" and r.headers["x-content-type-options"] == "nosniff"
+    c = client(tmp_path)
+    for resp in (r, c.get("/api/runs/run-1"), c.get("/"), c.post("/api/runs", headers={"origin": "https://evil.example"})):
+        assert resp.headers["x-frame-options"] == "SAMEORIGIN"  # the app's own report iframe must work
+        assert resp.headers["content-security-policy"] == "frame-ancestors 'self'"
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        assert "DENY" not in str(resp.headers)
 
 
 # ---- cross-site defence -------------------------------------------------------------------------------------

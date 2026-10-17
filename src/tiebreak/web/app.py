@@ -22,7 +22,8 @@ LOCAL_HOST = re.compile(r"(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?", re.IG
 STATIC = Path(__file__).parent / "static"
 MAX_YAML_BYTES = 64 * 1024
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-SECURITY_HEADERS = {"X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff"}
+SECURITY_HEADERS = {"X-Frame-Options": "SAMEORIGIN", "Content-Security-Policy": "frame-ancestors 'self'",
+                    "X-Content-Type-Options": "nosniff"}
 
 
 def _clean(message, models=()) -> str:
