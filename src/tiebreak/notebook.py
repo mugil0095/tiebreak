@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .config import ModelSpec, TaskConfig, load_models, load_pricing, load_task
+from .config import ModelSpec, TaskConfig, load_models, load_pricing, load_task, parse_pricing
 from .data import load_dataset
 from .engine import new_run_dir, run_experiment
 from .report import render_report
@@ -31,7 +31,12 @@ def _models(m) -> list[ModelSpec]:
 def _pricing(p) -> dict:
     if p is None:
         return {}
-    return {k: tuple(v) for k, v in p.items()} if isinstance(p, dict) else load_pricing(p)
+    if not isinstance(p, dict):
+        return load_pricing(p)
+    # accept [input_per_1k, output_per_1k] pairs as well as the pricing.yaml mapping shape
+    p = {k: {"input_per_1k": v[0], "output_per_1k": v[1]} if isinstance(v, (list, tuple)) and len(v) == 2 else v
+         for k, v in p.items()}
+    return parse_pricing(p, "pricing")
 
 
 def _dataset(data, task: TaskConfig):
@@ -74,7 +79,9 @@ class Comparison:
 
 
 def compare(task, models, data, *, pricing=None, run_dir=None, **engine_kwargs) -> Comparison:
-    """Run a comparison. engine_kwargs go to run_experiment: allow_hosted, local_only, max_cost, concurrency, retries, n_boot."""
+    """Run a comparison. engine_kwargs go to run_experiment: allow_hosted, local_only, max_cost, concurrency, retries, n_boot.
+
+    A DataFrame's index is not used as the id (include an `id` column); an existing run_dir is resumed."""
     t = _task(task)
     result = run_experiment(t, _models(models), _dataset(data, t),
                             Path(run_dir) if run_dir else new_run_dir("runs"),

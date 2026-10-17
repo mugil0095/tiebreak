@@ -121,21 +121,24 @@ def load_models(path) -> list[ModelSpec]:
     return specs
 
 
-def load_pricing(path) -> dict[str, tuple[float, float]]:
-    if path is None:
-        return {}
-    raw = _read_yaml(path) or {}
+def parse_pricing(raw, where: str) -> dict[str, tuple[float, float]]:
     if not isinstance(raw, dict):
-        raise ConfigError(f"{path}: expected 'model-id: {{input_per_1k: x, output_per_1k: y}}' entries")
+        raise ConfigError(f"{where}: expected 'model-id: {{input_per_1k: x, output_per_1k: y}}' entries")
     out = {}
     for k, v in raw.items():
         if not isinstance(v, dict):
-            raise ConfigError(f"{path}: price for '{k}' must be {{input_per_1k: x, output_per_1k: y}}")
+            raise ConfigError(f"{where}: price for '{k}' must be {{input_per_1k: x, output_per_1k: y}}")
         for key in ("input_per_1k", "output_per_1k"):
             if key not in v:
-                raise ConfigError(f"{path}: price for '{k}' is missing {key}")
+                raise ConfigError(f"{where}: price for '{k}' is missing {key}")
         try:
             out[str(k)] = (float(v["input_per_1k"]), float(v["output_per_1k"]))
         except (TypeError, ValueError) as e:
-            raise ConfigError(f"{path}: price for '{k}' must be numbers") from e
+            raise ConfigError(f"{where}: price for '{k}' must be numbers") from e
     return out
+
+
+def load_pricing(path) -> dict[str, tuple[float, float]]:
+    if path is None:
+        return {}
+    return parse_pricing(_read_yaml(path) or {}, str(path))
