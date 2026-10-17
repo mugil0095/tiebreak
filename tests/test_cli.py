@@ -3,6 +3,7 @@ import re
 import subprocess
 import sys
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -268,7 +269,7 @@ def test_serve_without_web_extra_gives_a_clean_message(monkeypatch):
 
 
 def test_serve_binds_loopback_only_and_passes_options(monkeypatch, tmp_path):
-    import uvicorn
+    uvicorn = pytest.importorskip("uvicorn")  # needs the web extra
     seen = {}
     monkeypatch.setattr(uvicorn, "run", lambda application, **kw: seen.update(app=application, **kw))
     r = runner.invoke(app, ["serve", "--port", "9123", "--runs-dir", str(tmp_path / "r")])
