@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -11,7 +10,7 @@ from .candidates.ml import ESTIMATORS
 from .config import load_models, load_pricing, load_task
 from .data import DataError, load_dataset
 from .demo import DEMO_FILES, write_demo
-from .engine import SafetyError, run_experiment
+from .engine import SafetyError, new_run_dir, run_experiment
 from .planner import estimate
 from .protocol import make_split
 from .report import write_report
@@ -108,15 +107,6 @@ def estimate_cmd(task: Path = typer.Option(..., "--task"), models_path: Path = t
         typer.echo(f"note: {note}")
 
 
-def _new_run_dir(out: Path) -> Path:
-    base = f"run-{datetime.now():%Y%m%d-%H%M%S}"
-    cand, k = out / base, 1
-    while cand.exists():
-        k += 1
-        cand = out / f"{base}-{k}"
-    return cand
-
-
 @app.command()
 def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Option(..., "--models"),
         data: Path = typer.Option(..., "--data"), pricing: Path = typer.Option(None, "--pricing"),
@@ -132,7 +122,7 @@ def run(task: Path = typer.Option(..., "--task"), models_path: Path = typer.Opti
         if resume is not None and not resume.is_dir():
             raise FileNotFoundError(f"--resume folder not found: {resume}")
         t, m, ds, p = _load(task, models_path, data, pricing)
-        run_dir = resume if resume is not None else _new_run_dir(out)
+        run_dir = resume if resume is not None else new_run_dir(out)
         typer.echo(f"run folder: {Path(run_dir).resolve()}")
         res = run_experiment(t, m, ds, run_dir, pricing=p, max_cost=max_cost, concurrency=concurrency,
                              allow_hosted=yes_send_data, local_only=local_only, n_boot=boot)

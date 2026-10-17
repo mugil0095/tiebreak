@@ -41,6 +41,16 @@ class SafetyError(RuntimeError):
     """A run was refused to protect the user's data or budget."""
 
 
+def new_run_dir(out) -> Path:
+    out = Path(out)
+    base = f"run-{datetime.now():%Y%m%d-%H%M%S}"
+    cand, k = out / base, 1
+    while cand.exists():
+        k += 1
+        cand = out / f"{base}-{k}"
+    return cand
+
+
 @dataclass
 class ExperimentResult:
     run_dir: Path
