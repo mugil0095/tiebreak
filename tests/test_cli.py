@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 
@@ -8,6 +9,10 @@ from typer.testing import CliRunner
 from tiebreak.cli import _print_summary, app
 
 runner = CliRunner()
+
+
+def _plain(text):
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)  # rich adds colour codes on CI
 
 
 def _demo(tmp_path, name="my demo"):
@@ -201,7 +206,7 @@ def test_help_works():
     for args in (["--help"], ["run", "--help"], ["estimate", "--help"]):
         r = runner.invoke(app, args)
         assert r.exit_code == 0, (args, r.output)
-    assert "--models" in runner.invoke(app, ["run", "--help"]).output
+    assert "--models" in _plain(runner.invoke(app, ["run", "--help"]).output)
 
 
 def test_provisional_is_said_in_first_line(capsys):
@@ -245,7 +250,7 @@ def test_ctrl_c_prints_a_resume_hint_and_exits_130_without_a_traceback(tmp_path,
 
 def test_serve_help_lists_the_options():
     r = runner.invoke(app, ["serve", "--help"])
-    assert r.exit_code == 0 and "--port" in r.output and "--runs-dir" in r.output
+    assert r.exit_code == 0 and "--port" in _plain(r.output) and "--runs-dir" in _plain(r.output)
 
 
 def test_serve_without_web_extra_gives_a_clean_message(monkeypatch):
