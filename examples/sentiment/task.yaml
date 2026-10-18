@@ -1,0 +1,8 @@
+type: binary
+label_column: label
+text_column: text
+labels: [negative, positive]
+metric: macro_f1
+margin: 0.05
+volume: 10000
+repeats: 1

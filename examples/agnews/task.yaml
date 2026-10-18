@@ -1,0 +1,8 @@
+type: classify
+label_column: topic
+text_column: text
+labels: [world, sports, business, sci_tech]
+metric: macro_f1
+margin: 0.05
+volume: 10000
+repeats: 1
