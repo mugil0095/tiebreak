@@ -7,3 +7,5 @@ runs/
 .superpowers/
 
 google-test/
+examples/data/
+examples/*.log

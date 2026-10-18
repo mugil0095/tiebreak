@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo.svg" alt="tiebreak" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/logo.svg" alt="tiebreak" width="360">
   </picture>
 </p>
 
@@ -27,7 +27,7 @@
 **Which model should you use for your task?** tiebreak runs several candidate models (hosted LLM APIs, local LLMs via Ollama, and classic scikit-learn models) on a small labelled sample of *your* data and reports score, cost and latency with 95% confidence intervals. It then recommends the **cheapest model that is statistically tied with the best**, or says plainly that your data cannot separate the candidates and roughly how many more labelled examples would. Everything runs on your machine and produces a self-contained offline `report.html`.
 
 <p align="center">
-  <img src="docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
+  <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
 </p>
 
 *A real run (not the simulated demo below): 300 labelled rows, 3-class sentiment, one hosted model against a scikit-learn baseline. One task and one sample, so this is an example of the output, not a claim that classic ML beats LLMs in general.*
