@@ -68,6 +68,10 @@ tiebreak run --task demo/task.yaml --models demo/models.yaml --data demo/data.cs
 
 What the demo currently produces: `sim-large` has the highest score, but **`sim-small` is recommended**, because it is confirmed to be within the 0.05 margin of `sim-large` and is much cheaper.
 
+## Real examples
+
+Three free, reproducible runs on public data (AG News, SMS spam, SST-2) with scikit-learn models and a small local LLM: the winner differs by task, and the LLM was eliminated early on two of them. See [`examples/`](examples/README.md) and the [sample reports](https://mugil0095.github.io/tiebreak/).
+
 ## Use your own data
 
 Put your labelled examples in a CSV or JSONL file (one row per example; an id column is optional, a label column is required), then describe the task and the candidates.

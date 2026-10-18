@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiebreak sample reports</title>
+<meta name="description" content="Sample reports from tiebreak: the cheapest model that is statistically tied with the best.">
+<link rel="icon" href="assets/symbol.svg">
+<style>
+:root{--bg:#14151C;--panel:#1D1F2A;--tx:#F9F8FD;--mut:#A9ABBA;--ac:#F0987D}
+@media (prefers-color-scheme: light){:root{--bg:#FAF9FD;--panel:#fff;--tx:#20212B;--mut:#5b5d70;--ac:#C9553D}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.55 "Segoe UI",system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:48px 20px 64px}
+img.logo{height:54px;width:auto;margin-left:-18px}
+h1{font-size:clamp(26px,5vw,38px);line-height:1.15;margin:28px 0 10px}
+p{color:var(--mut)}
+.card{display:block;background:var(--panel);border-radius:14px;padding:18px 22px;margin:14px 0;text-decoration:none;color:var(--tx);border:1px solid transparent}
+.card:hover,.card:focus-visible{border-color:var(--ac);outline:none}
+.card b{display:block;font-size:18px}
+.card span{color:var(--mut);font-size:15px}
+.tag{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ac);font-weight:700}
+a.plain{color:var(--ac)}
+</style>
+</head>
+<body>
+<main>
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="assets/logo.svg">
+  <img class="logo" src="assets/logo-dark.svg" alt="tiebreak">
+</picture>
+<h1>The cheapest model that is statistically tied with the best.</h1>
+<p>These are the offline <code>report.html</code> files tiebreak produces. Each one is a real run on a 300-row public sample, except the demo, which uses simulated models and says so on its first line. One task and one sample each: they show what the output looks like, not which model is best in general.</p>
+
+<a class="card" href="reports/agnews.html"><span class="tag">Real run</span><b>AG News: 4-class topics</b><span>scikit-learn models vs a small local LLM (Qwen3.5 0.8B).</span></a>
+<a class="card" href="reports/spam.html"><span class="tag">Real run</span><b>SMS spam: imbalanced binary</b><span>same candidates; 37 spam messages in 300.</span></a>
+<a class="card" href="reports/sentiment.html"><span class="tag">Real run</span><b>SST-2: movie-review sentiment</b><span>same candidates on balanced binary sentiment.</span></a>
+<a class="card" href="reports/demo-simulated.html"><span class="tag">Simulated</span><b>Two-minute demo</b><span>fake models with preset accuracy; shows every section of the report.</span></a>
+
+<p style="margin-top:32px"><a class="plain" href="https://github.com/mugil0095/tiebreak">github.com/mugil0095/tiebreak</a> &middot; Apache-2.0</p>
+</main>
+</body>
+</html>
