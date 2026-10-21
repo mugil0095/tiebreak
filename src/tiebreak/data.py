@@ -62,16 +62,19 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
     except (OSError, ValueError) as e:  # EmptyDataError, ParserError, bad JSON, bad encoding are ValueErrors
         raise DataError(f"could not read {path.name}: {e}") from e
 
-    lc, tc = task.label_column, task.text_column
-    if lc not in df.columns:
+    judging = task.type == "judge"
+    lc, tc = (None, task.prompt_column) if judging else (task.label_column, task.text_column)
+    if not judging and lc not in df.columns:
         raise DataError(f"label column '{lc}' not found; columns are {list(df.columns)}")
     if tc and tc not in df.columns:
-        raise DataError(f"text column '{tc}' not found; columns are {list(df.columns)}")
+        kind = "prompt" if judging else "text"
+        raise DataError(f"{kind} column '{tc}' not found; columns are {list(df.columns)}")
 
-    missing = df.index[df[lc].isna() | (df[lc].astype(str).str.strip() == "")].tolist()
-    if missing:
-        rows = [i + 1 for i in missing[:5]]
-        raise DataError(f"{len(missing)} rows have no label (first data rows, 1-based: {rows})")
+    if not judging:
+        missing = df.index[df[lc].isna() | (df[lc].astype(str).str.strip() == "")].tolist()
+        if missing:
+            rows = [i + 1 for i in missing[:5]]
+            raise DataError(f"{len(missing)} rows have no label (first data rows, 1-based: {rows})")
 
     text = None
     if tc:
@@ -95,7 +98,9 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
     else:
         ids = [f"row-{i}" for i in range(len(df))]
 
-    if task.type == "regress":
+    if judging:
+        y = np.full(len(df), float(task.scale[1]))  # synthetic target: the top of the judge's scale
+    elif task.type == "regress":
         try:
             y = pd.to_numeric(df[lc], errors="raise").to_numpy(dtype=float)
         except (ValueError, TypeError) as e:
@@ -116,5 +121,5 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
             if len(set(y)) < 2:
                 raise DataError("the data needs at least two distinct labels")
 
-    frame = df.drop(columns=[c for c in (lc, "id") if c in df.columns]).reset_index(drop=True)
+    frame = df.drop(columns=[c for c in (lc, "id") if c is not None and c in df.columns]).reset_index(drop=True)
     return Dataset(ids, frame, y, text)
