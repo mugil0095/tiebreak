@@ -37,7 +37,7 @@ Task files: `agnews/`, `spam/`, `sentiment/`; candidates: `models.yaml`. All use
 
 `examples/judge/` compares candidates on 20 prompts with no right answers. `models.yaml` runs offline with simulated models (it is also a test). `models-ollama.yaml` runs for free with one small local model playing all three roles, and `models-jev.yaml` swaps in Jev as the judge.
 
-A real run of `models-ollama.yaml` (Qwen3.5 0.8B as two candidates, "brief" with a 60-token limit and "full" with 300, and also as the judge, on a GTX 1650):
+A real run of `models-ollama.yaml` (Qwen3.5 0.8B as two candidates, "brief" with a 60-token limit and "full" with 300, and also as the judge, on a machine with a GTX 1650):
 
 | | Mean judge score (1-5) | Mean answer length | Median latency per answer |
 |---|---|---|---|
