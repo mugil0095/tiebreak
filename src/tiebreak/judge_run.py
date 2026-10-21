@@ -60,6 +60,13 @@ class _JudgeCompleter:
         return Completion(text, s.tokens_in, 0, s.cost_usd, time.perf_counter() - t0)
 
 
+class _NoCalls:
+    """Stands in when every judgment is already cached."""
+
+    def complete(self, prompt: str):
+        raise RuntimeError("a cached judgment was expected but is missing")
+
+
 def _effective(spec: ModelSpec) -> ModelSpec:
     if spec.provider == "mock":
         return spec
@@ -89,8 +96,7 @@ def run_judging(task: TaskConfig, dataset: Dataset, candidates: list[ModelSpec],
     prices = prices or {}
     answer_store = PredictionStore(run_dir / "predictions.jsonl")
     judgment_store = PredictionStore(run_dir / "judgments.jsonl")
-    judge = build_judge(judge_spec, task)
-    judge_completer = _JudgeCompleter(judge)
+    judge_completer = None  # built when a judgment is actually missing: a fully cached run needs no judge or key
     judge_cfg = hash_text(json.dumps([config_hash(judge_spec), task.rubric, list(task.scale)]))
     judge_price = (0.0, 0.0) if is_local(judge_spec) else prices.get(judge_spec.name)
     lo = float(task.scale[0])
@@ -121,7 +127,13 @@ def run_judging(task: TaskConfig, dataset: Dataset, candidates: list[ModelSpec],
         if to_judge and not cap.exceeded:
             jcalls = [Call((f"judge:{spec.name}", dataset.ids[i], 0), json.dumps([row_text(dataset, i), answers[i]]), judge_cfg)
                       for i in to_judge]
-            jrecs, capped = _execute(jcalls, judge_completer, judgment_store, judge_price, cap, exec_kw)
+            if len(judgment_store.valid_for(jcalls)) < len(jcalls):
+                if judge_completer is None:
+                    judge_completer = _JudgeCompleter(build_judge(judge_spec, task))  # fails fast: no key, no SDK
+                completer = judge_completer
+            else:
+                completer = _NoCalls()
+            jrecs, capped = _execute(jcalls, completer, judgment_store, judge_price, cap, exec_kw)
             out.incomplete |= capped
             out.judge_calls += list(jrecs.values())
             for i, c in zip(to_judge, jcalls):

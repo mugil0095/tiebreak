@@ -127,3 +127,23 @@ def test_cost_cap_stops_spending_and_flags_incomplete(tmp_path):
     res = _run(tmp_path, [_cand("c", 50, cost=0.002)], cap=CostCap(0.005))
     assert res.incomplete is True
     assert np.count_nonzero(~np.isnan(res.by_candidate["c"])) < N
+
+
+def test_a_fully_cached_run_does_not_need_the_judge(tmp_path, monkeypatch):
+    first = _run(tmp_path, [_cand("a", 50)])
+
+    def no_key(spec, task):
+        raise ValueError("environment variable TYPESAFE_API_KEY is not set or empty")
+
+    monkeypatch.setattr(jr, "build_judge", no_key)
+    second = _run(tmp_path, [_cand("a", 50)])
+    assert np.array_equal(first.by_candidate["a"], second.by_candidate["a"])
+
+
+def test_a_missing_judge_fails_fast_when_judging_is_pending(tmp_path, monkeypatch):
+    def no_key(spec, task):
+        raise ValueError("environment variable TYPESAFE_API_KEY is not set or empty")
+
+    monkeypatch.setattr(jr, "build_judge", no_key)
+    with pytest.raises(ValueError, match="TYPESAFE_API_KEY"):
+        _run(tmp_path, [_cand("a", 50)])
