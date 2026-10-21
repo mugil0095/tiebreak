@@ -32,3 +32,18 @@ Task files: `agnews/`, `spam/`, `sentiment/`; candidates: `models.yaml`. All use
 - Only one small local LLM was tested. These runs say nothing about larger models.
 - The local LLM's cost is latency times a compute price per hour, so it is an estimate, not a bill.
 - Runs used a GTX 1650, so LLM latency (about 0.8 s median per call) is specific to that machine.
+
+## Judge example (prompts only)
+
+`examples/judge/` compares candidates on 20 prompts with no right answers. `models.yaml` runs offline with simulated models (it is also a test). `models-ollama.yaml` runs for free with one small local model playing all three roles, and `models-jev.yaml` swaps in Jev as the judge.
+
+A real run of `models-ollama.yaml` (Qwen3.5 0.8B as two candidates, "brief" with a 60-token limit and "full" with 300, and also as the judge, on a GTX 1650):
+
+| | Mean judge score (1-5) | Mean answer length | Median latency per answer |
+|---|---|---|---|
+| qwen-brief | 5.00 | 42 words | 5.0 s |
+| qwen-full | 5.00 | 167 words | 18.5 s |
+
+- **The 0.8B judge gave all 40 answers a 5.** It cannot tell the candidates apart, so tiebreak reported them as tied and recommended the cheaper one (qwen-brief), and said plainly in the report that the judge scored every answer the same and that this tie says nothing about quality. It also warned that the judge is one of the candidates.
+- **That is the point of the warnings.** A weak or self-interested judge produces confident-looking ties. Use a stronger judge (for example Jev) and score some answers yourself (`human_score_column`) before trusting a judge-based recommendation.
+- Not measured here: how Jev behaves as a judge on these prompts.

@@ -139,6 +139,11 @@ def run_judge_experiment(
     included = [name for name in results if status[name] == "included"]
     diagnostics, pairwise = _diagnostics(reg, dataset, included, y_enc, enc, boot, warnings)
 
+    scored = np.concatenate([s[~np.isnan(s)] for s in out.by_candidate.values()])
+    all_same = bool(len(scored) >= 2 and np.ptp(scored) == 0)
+    if all_same:
+        warnings.append(f"The judge gave every answer the same score ({scored[0]:g}), so it cannot tell the candidates "
+                        "apart: a tie here says nothing about quality. Try a stronger judge or a sharper rubric.")
     self_judging = any(c.provider == judge.provider and c.model == judge.model for c in candidates)
     if self_judging:
         warnings.append(f"The judge model ({judge.model}) is also a candidate: judges tend to favour their own "
@@ -161,6 +166,7 @@ def run_judge_experiment(
     data["task"]["repeats"] = 1
     data["warnings"] = [w.replace("labelled examples", "prompts") for w in data["warnings"]]
     data["task"]["scale"] = list(task.scale)
-    data["judge"] = _clean(_judge_block(task, dataset, candidates, judge, out, self_judging))
+    data["judge"] = _clean({**_judge_block(task, dataset, candidates, judge, out, self_judging),
+                            "all_same_score": all_same})
     _write_outputs(run_dir, data, task, models, dataset, n_boot, prices_used)
     return ExperimentResult(run_dir, data)

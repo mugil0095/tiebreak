@@ -132,3 +132,23 @@ def test_a_candidate_the_judge_cannot_score_is_left_out_and_the_recommendation_i
     assert rows["bad"]["status"] == "excluded" and rows["good"]["status"] == "included"
     rec = data["recommendation"]
     assert rec["status"] == "provisional" and rec["winner"] == "good" and "bad" in rec["reason"]
+
+
+def test_a_cost_cap_marks_the_run_incomplete_and_says_so(tmp_path):
+    data = run_experiment(_task(), [_cand("a", 50, 0.002), _judge()], _ds(), tmp_path / "run",
+                          max_cost=0.005, **QUIET).data
+    assert data["incomplete"] is True
+    assert data["recommendation"] is None or data["recommendation"]["status"] == "provisional"
+    assert any("cost cap" in w.lower() or "nothing to recommend" in w.lower() for w in data["warnings"])
+
+
+def test_a_judge_that_scores_everything_the_same_is_called_out(tmp_path):
+    data = _run(tmp_path, _task(), [_cand("a", 200, 0.01), _cand("b", 200, 0.001), _judge()])  # every answer gets a 5
+    assert any("same score" in w and "cannot tell" in w for w in data["warnings"])
+    assert data["judge"]["all_same_score"] is True
+
+
+def test_a_judge_that_discriminates_is_not_called_out(tmp_path):
+    data = _run(tmp_path, _task(), [_cand("good", 200, 0.1), _cand("bad", 1, 0.001), _judge()])
+    assert not any("same score" in w for w in data["warnings"])
+    assert data["judge"]["all_same_score"] is False
