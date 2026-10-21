@@ -107,14 +107,14 @@ Pricing, reasoning models, rate limits and resuming: [docs/usage.md](docs/usage.
 | How the decision is made and how it was validated | [docs/how-it-works.md](docs/how-it-works.md) |
 | Safety switches and known limitations | [docs/safety-and-limits.md](docs/safety-and-limits.md) |
 
-## How it decides, in four lines
+## How it decides
 
 - A candidate is *tied* with the best only when we are 95% confident (Holm-adjusted) that it is no more than your margin below it. "Not significantly different" is never treated as "tied".
 - It uses a paired bootstrap on the same resampled examples, plus a guard so models that rarely disagree are not tied from thin evidence.
 - It recommends the cheapest tied candidate at your expected volume, or says the data cannot separate them and roughly how many more labels would.
 - Incomplete or partly failed runs are marked provisional and say what is missing.
 
-## Limits in short
+## Limits
 
 - You need labelled data, or a judge model whose scores are only as good as the judge.
 - Small samples are often inconclusive, and 4 or more similar candidates need many examples to confirm ties.
