@@ -43,6 +43,29 @@ def _price_text(u: dict) -> str:
     return "reported by the provider per call"
 
 
+def _judge_view(data: dict) -> dict | None:
+    """Formatted strings for the Judge section, or None for runs without a judge."""
+    j = data.get("judge")
+    if not j:
+        return None
+    task = data.get("task") or {}
+    scale = task.get("scale") or [None, None]
+    human = j.get("human_agreement")
+    length = [{"name": name, "words": _f((v or {}).get("mean_words"), ".0f"),
+               "rho": _f((v or {}).get("score_length_spearman"), "+.2f")}
+              for name, v in (j.get("length") or {}).items()]
+    pct = lambda v: NA if not _num(v) else f"{v * 100:.1f}%"  # noqa: E731
+    return {
+        "name": j.get("name", ""), "model": j.get("model", ""), "backend": j.get("backend", ""),
+        "self_judging": bool(j.get("self_judging")), "cost": _f(j.get("evaluation_cost"), ".4f", "$"),
+        "invalid": pct(j.get("invalid_rate")), "low_confidence": pct(j.get("low_confidence_rate")),
+        "scale": f"{scale[0]} to {scale[1]}", "length": length,
+        "human": None if not human else {
+            "candidate": human.get("candidate", ""), "n": human.get("n", 0),
+            "rho": _f(human.get("spearman"), "+.2f")},
+    }
+
+
 def render_report(data: dict, redact: bool = False) -> str:
     rec = data.get("recommendation")
     winners = set(rec.get("equivalent") or []) if rec else set()
@@ -61,7 +84,7 @@ def render_report(data: dict, redact: bool = False) -> str:
         d=data, task=data.get("task") or {}, rec=rec, rows=[_row(c) for c in data.get("candidates", [])],
         chart=frontier_svg(points), redact=redact, mislabels=mislabels, pairwise=pairwise,
         n_disagree=len(diag.get("disagreement_ids") or []),
-        prices_used=prices_used, run_date=data.get("run_date") or NA,
+        prices_used=prices_used, run_date=data.get("run_date") or NA, judge=_judge_view(data),
         warnings=data.get("warnings") or [], elimination_log=data.get("elimination_log") or [],
     )
 

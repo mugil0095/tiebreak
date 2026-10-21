@@ -19,7 +19,7 @@ from . import __version__
 from .candidates.base import CandidateResult
 from .candidates.llm import LLMCandidate, build_completer, check_task_support, is_hosted, is_local
 from .candidates.ml import MLCandidate
-from .config import ModelSpec, TaskConfig
+from .config import ModelSpec, TaskConfig, validate_models_for_task
 from .cost import latency_stats, summarize_cost
 from .data import Dataset
 from .diagnostics import class_balance, disagreements, sample_warnings, suspected_mislabels
@@ -405,6 +405,14 @@ def run_experiment(
     completer_factory=None, n_boot: int = 10_000, sleep=time.sleep,
 ) -> ExperimentResult:
     pricing = pricing or {}
+    if task.type == "judge":
+        from .judge_engine import run_judge_experiment  # judge tasks have their own pipeline
+
+        return run_judge_experiment(task, models, dataset, run_dir, pricing=pricing, max_cost=max_cost,
+                                    concurrency=concurrency, retries=retries, allow_hosted=allow_hosted,
+                                    local_only=local_only, completer_factory=completer_factory,
+                                    n_boot=n_boot, sleep=sleep)
+    validate_models_for_task(task, models)
     _check_safety(task, models, allow_hosted, local_only)
     run_dir = Path(run_dir)
     _write_snapshot(run_dir, task, models, pricing)

@@ -1,0 +1,8 @@
+# Prompts only, no right answers: a judge model scores each candidate's answer.
+type: judge
+prompt_column: prompt
+# rubric: "Prefer short, correct, practical answers."   # optional; a default rubric is used otherwise
+# human_score_column: human     # optional: your own 1-5 scores for the FIRST candidate's answers, to check the judge
+scale: [1, 5]
+margin: 0.25                    # "tied" means within this many score points of the best
+volume: 10000                   # prompts per period, for the cost projection

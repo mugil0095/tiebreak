@@ -12,6 +12,7 @@ from .data import DataError, load_dataset
 from .demo import DEMO_FILES, write_demo
 from .engine import SafetyError, new_run_dir, run_experiment
 from .planner import estimate
+from .prices import search_prices
 from .protocol import make_split
 from .report import write_report
 
@@ -72,13 +73,57 @@ def init(demo: bool = typer.Option(False, "--demo", help="Write a synthetic demo
 
 
 @app.command()
-def models():
-    """List built-in ML estimators and LLM providers."""
+def models(query: str = typer.Argument(None, help="Show prices of models whose id contains this text."),
+           limit: int = typer.Option(25, "--limit", min=1, help="Most rows to show with a query.")):
+    """List built-in ML estimators and LLM providers, or (with a query) model prices per million tokens."""
+    if query is not None:
+        rows = search_prices(query, limit)
+        if not rows:
+            typer.echo(f"No models match '{query}' (prices come from LiteLLM's table: pip install \"tiebreak[llm]\").")
+            return
+        typer.echo(f"{'model':<48}{'input $/Mtok':>14}{'output $/Mtok':>15}  source")
+        for r in rows:
+            typer.echo(f"{r.model:<48}{r.input_per_mtok:>14.4f}{r.output_per_mtok:>15.4f}  {r.source}")
+        return
     typer.echo("Built-in ML estimators:")
     for name in ESTIMATORS:
         typer.echo(f"  {name}" + ("   (needs the 'boost' extra: pip install tiebreak[boost])" if name in BOOST_ESTIMATORS else ""))
     typer.echo("LLM candidates use provider/model ids from models.yaml: any LiteLLM provider (needs the 'llm' extra), "
                "ollama, openai_compatible, or mock (SIMULATED, no API calls).")
+
+
+_HISTORY_COLUMNS = ("run", "date", "task_type", "metric", "model", "kind", "status", "score", "cost_at_volume",
+                    "p50_latency_s")
+
+
+@app.command()
+def history(runs_dir: Path = typer.Option(Path("runs"), "--runs-dir", help="Where runs are stored."),
+            csv: bool = typer.Option(False, "--csv", help="Print CSV instead of a table.")):
+    """List every model you have run, with score, cost and latency, from your saved runs."""
+    from .history import collect_history
+
+    rows, skipped = collect_history(runs_dir)
+
+    def cell(v):
+        return "" if v is None else (f"{v:.4g}" if isinstance(v, float) else str(v))
+
+    table = [[cell(getattr(r, c)) for c in _HISTORY_COLUMNS] for r in rows]
+    if csv:
+        import csv as csv_module
+        import io
+        buf = io.StringIO()
+        w = csv_module.writer(buf, lineterminator="\n")
+        w.writerow(_HISTORY_COLUMNS)
+        w.writerows(table)
+        typer.echo(buf.getvalue().rstrip("\n"))
+    elif table:
+        widths = [max(len(c), *(len(row[i]) for row in table)) for i, c in enumerate(_HISTORY_COLUMNS)]
+        for row in [list(_HISTORY_COLUMNS)] + table:
+            typer.echo("  ".join(v.ljust(w) for v, w in zip(row, widths)).rstrip())
+    else:
+        typer.echo(f"No finished runs found in {runs_dir}.")
+    if skipped:
+        typer.echo(f"skipped {skipped} unreadable run folder{'s' if skipped != 1 else ''}", err=csv)
 
 
 def _load(task, models_path, data, pricing):

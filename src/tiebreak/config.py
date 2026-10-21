@@ -5,18 +5,19 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-TaskType = Literal["classify", "binary", "extract_exact", "regress"]
+TaskType = Literal["classify", "binary", "extract_exact", "regress", "judge"]
 DEFAULT_METRIC = {
     "classify": "macro_f1",
     "binary": "accuracy",
     "extract_exact": "accuracy",
     "regress": "neg_rmse",
+    "judge": "neg_mae",  # judge scores are compared as distance below the top of the scale
 }
 
 
 class TaskConfig(BaseModel):
     type: TaskType
-    label_column: str
+    label_column: str | None = None
     text_column: str | None = None
     labels: list[str] | None = None
     metric: str | None = None
@@ -28,9 +29,25 @@ class TaskConfig(BaseModel):
     cv_repeats: int = Field(3, ge=1)
     seed: int = 0
     compute_price_per_hour: float = Field(0.10, ge=0)
+    # judge tasks (prompts scored by a judge model instead of compared with labels)
+    prompt_column: str | None = None
+    rubric: str | None = None
+    scale: tuple[int, int] = (1, 5)
+    human_score_column: str | None = None
+    judge_confidence_min: float = Field(0.5, ge=0, le=1)
 
     @model_validator(mode="after")
     def _check(self):
+        if self.type == "judge":
+            if not self.prompt_column:
+                raise ValueError("prompt_column is required for judge tasks")
+            if self.scale[0] >= self.scale[1]:
+                raise ValueError("scale must be [low, high] with low < high")
+            if "margin" not in self.model_fields_set:
+                self.margin = 0.25  # score points on the judge's scale
+            return self
+        if not self.label_column:
+            raise ValueError("label_column is required")
         if self.type in ("classify", "binary") and not self.labels:
             raise ValueError("labels are required for classify/binary tasks")
         if self.type == "binary" and len(self.labels) != 2:
@@ -45,6 +62,7 @@ class TaskConfig(BaseModel):
 class ModelSpec(BaseModel):
     name: str
     kind: Literal["llm", "ml"]
+    role: Literal["candidate", "judge"] = "candidate"
     provider: str | None = None
     model: str | None = None
     estimator: str | None = None
@@ -60,6 +78,8 @@ class ModelSpec(BaseModel):
             raise ValueError("llm candidates need provider and model")
         if self.kind == "ml" and not self.estimator:
             raise ValueError("ml candidates need an estimator")
+        if self.role == "judge" and self.kind != "llm":
+            raise ValueError("a judge must be an llm entry")
         return self
 
 
@@ -119,6 +139,23 @@ def load_models(path) -> list[ModelSpec]:
     if dupes:
         raise ConfigError(f"{path}: duplicate candidate names: {dupes}")
     return specs
+
+
+def validate_models_for_task(task: TaskConfig, models: list[ModelSpec]) -> None:
+    """Judge tasks need exactly one judge and at least one llm candidate; only judge tasks may name a judge."""
+    judges = [m for m in models if m.role == "judge"]
+    if task.type != "judge":
+        if judges:
+            raise ConfigError(f"'{judges[0].name}' has role: judge, which only makes sense for type: judge tasks")
+        return
+    if len(judges) != 1:
+        raise ConfigError(f"judge tasks need exactly one model with role: judge (found {len(judges)})")
+    candidates = [m for m in models if m.role == "candidate"]
+    if not candidates:
+        raise ConfigError("judge tasks need at least one candidate besides the judge")
+    ml = [m.name for m in candidates if m.kind == "ml"]
+    if ml:
+        raise ConfigError(f"ml candidates cannot answer prompts; remove {ml} from a judge task")
 
 
 def parse_pricing(raw, where: str) -> dict[str, tuple[float, float]]:

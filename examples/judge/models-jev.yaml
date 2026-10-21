@@ -1,0 +1,5 @@
+# Jev as the judge (pip install "tiebreak[judge]"; set TYPESAFE_API_KEY yourself, never paste it anywhere).
+# The judge is a hosted API, so tiebreak asks for --yes-send-data before it sends any text.
+- {name: qwen-brief, kind: llm, provider: ollama, model: "qwen3.5:0.8b", params: {think: false, max_tokens: 60}}
+- {name: qwen-full, kind: llm, provider: ollama, model: "qwen3.5:0.8b", params: {think: false, max_tokens: 300}}
+- {name: judge, kind: llm, provider: typesafe, model: jev-1.14.0, role: judge}

@@ -248,3 +248,42 @@ def test_early_elimination_of_a_tied_candidate_at_the_shipped_settings(n):
     RATES[f"early elimination drops a tied candidate | 5 tied, n={n}, first round {first}"] = dropped_runs / reps
     # characterised, not guaranteed: strict thresholds still drop a tied model now and then with 5 candidates
     assert dropped_runs / reps <= ELIMINATION_FALSE_DROP_BOUND[n]
+
+
+JUDGE_MARGIN = 0.25
+JUDGE_SHIFT = 0.259  # latent shift for which the rounded, clipped 1-5 scores have a population mean gap of 0.25
+
+
+def _judge_scores(n: int, rng):
+    """Two judge-scored candidates with correlated, integer-valued scores (1 to 5); the first is better by
+    JUDGE_MARGIN points on average, so the second sits exactly on the tie boundary."""
+    q = rng.normal(0, 0.9, n)
+    a = np.clip(np.round(3.3 + q + rng.normal(0, 0.8, n) * 0.5), 1, 5)
+    b = np.clip(np.round(3.3 - JUDGE_SHIFT + q + rng.normal(0, 0.8, n) * 0.5), 1, 5)
+    return a, b
+
+
+def test_the_judge_score_gap_constant_matches_the_margin():
+    a, b = _judge_scores(400_000, np.random.default_rng(1))
+    assert abs((a - b).mean() - JUDGE_MARGIN) < 0.01
+
+
+@pytest.mark.parametrize("n", [20, 100])
+def test_false_tie_rate_for_judge_scores_at_the_margin_boundary_stays_small(n):
+    """Judge scores are compared through the regression path (neg_mae against the top of the scale) with no
+    discordance guard. At a true gap equal to the margin the bootstrap alone should falsely tie the worse
+    candidate at about the nominal 5%; the README quotes the measured rates."""
+    from tiebreak.metrics import neg_mae
+
+    rng = np.random.default_rng(900 + n)
+    reps, best_a, false_ties = 600, 0, 0
+    y = np.full(n, 5.0)
+    for _ in range(reps):
+        a, b = _judge_scores(n, rng)
+        boot = paired_bootstrap(y, {"A": a, "B": b}, neg_mae, n_boot=N_BOOT, seed=int(rng.integers(10**9)))
+        if boot.best == "A":
+            best_a += 1
+            false_ties += equivalent_set(boot, JUDGE_MARGIN, guard=False)["B"]
+    rate = cond_rate(false_ties, best_a, reps)
+    RATES[f"false tie | judge scores (1-5), at boundary (gap = margin 0.25), bootstrap only, n={n}"] = rate
+    assert rate <= 0.09

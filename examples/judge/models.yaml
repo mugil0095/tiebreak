@@ -1,0 +1,4 @@
+# Offline demo: every model here is SIMULATED (mock). Run it to see the report, never to choose a model.
+- {name: long-answers, kind: llm, provider: mock, model: long, params: {answer_words: 200, cost_per_call: 0.004}}
+- {name: short-answers, kind: llm, provider: mock, model: short, params: {answer_words: 8, cost_per_call: 0.0005}}
+- {name: judge, kind: llm, provider: mock, model: judge, role: judge, params: {bias_by_length: true, cost_per_call: 0.0002}}

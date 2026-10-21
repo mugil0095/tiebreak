@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 import numpy as np
 
 from .candidates.base import CandidateResult
 from .config import ModelSpec, TaskConfig
+from .prices import lookup_price
 
 PRICE_SOURCES = ("pricing.yaml", "provider", "unknown", "compute time")
 
@@ -47,21 +47,10 @@ def summarize_cost(result: CandidateResult, task: TaskConfig, price: tuple[float
 
 
 def litellm_price(spec: ModelSpec) -> tuple[float, float] | None:
-    """(input, output) price per 1k tokens from LiteLLM's table if litellm is importable, else None.
+    """(input, output) price per 1k tokens from the price lookup (LiteLLM's table plus built-in entries), else None.
     Used by `estimate` only; a run uses pricing.yaml or the cost the provider reports."""
-    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")  # bundled table: no network access
-    try:
-        import litellm
-        table = litellm.model_cost
-    except Exception:
-        return None
-    for key in (f"{spec.provider}/{spec.model}", spec.model):
-        entry = table.get(key) if isinstance(table, dict) else None
-        if isinstance(entry, dict):
-            tin, tout = entry.get("input_cost_per_token"), entry.get("output_cost_per_token")
-            if isinstance(tin, (int, float)) and isinstance(tout, (int, float)):
-                return float(tin) * 1000, float(tout) * 1000
-    return None
+    row = lookup_price(spec.provider, spec.model)
+    return None if row is None else (row.input_per_mtok / 1000, row.output_per_mtok / 1000)
 
 
 def latency_stats(latencies: list[float]) -> tuple[float, float]:

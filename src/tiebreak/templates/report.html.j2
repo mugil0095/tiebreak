@@ -37,7 +37,7 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 <td>{{ c.status }}{% if c.tied %} (tied){% endif %}{% if c.note %}<br><span class="muted">{{ c.note }}</span>{% endif %}</td>
 <td>{{ c.score }}</td><td>{{ c.ci }}</td><td>{{ c.cost_1k }}</td><td>{{ c.total }}</td><td>{{ c.price_source }}</td><td>{{ c.latency }}</td><td>{{ c.invalid }}</td><td>{{ c.errors }}</td><td>{{ c.unstable }}</td></tr>
 {% endfor %}</table>
-<p class="muted">Unstable answers = share of examples whose repeated answers disagreed (LLM: across repeats; ML: across cross-validation repeats).</p>
+{% if not judge %}<p class="muted">Unstable answers = share of examples whose repeated answers disagreed (LLM: across repeats; ML: across cross-validation repeats).</p>{% endif %}
 <p class="muted">* price unknown: add the model to pricing.yaml. n/a = not available. Eliminated or excluded candidates are scored only on the examples they completed and are not part of the comparison. Latency is measured on this machine and network, not a provider benchmark.</p></div>
 
 {% if prices_used %}<h2>Prices used</h2>
@@ -45,10 +45,21 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 {% for u in prices_used %}<tr><td>{{ u.candidate }}</td><td>{{ u.model }}</td><td>{{ u.source }}</td><td>{{ u.price }}</td></tr>{% endfor %}</table>
 <p class="muted">Prices as of the run date {{ run_date }}. pricing.yaml prices are the ones you supplied; "provider" is the cost the provider reported per call; "compute time" is latency times your compute price per hour.</p></div>{% endif %}
 
+{% if judge %}<h2>Judge</h2>
+<div class="card">
+<p>These scores come from a judge model ({{ judge.name }}: {{ judge.model }}, {{ judge.backend }}), not ground truth. Each answer was scored on a scale of {{ judge.scale }}; the score column is the mean judge score. A judge can prefer longer answers, its own style or its own output, so check a few answers yourself before relying on a small difference.</p>
+{% if judge.self_judging %}<p><strong>Warning: the judge model is also a candidate.</strong> Judges tend to favour their own answers.</p>{% endif %}
+<p>Judge cost (not included in the candidates' costs): {{ judge.cost }}. Unusable judge replies: {{ judge.invalid }}. Low-confidence judgments: {{ judge.low_confidence }}.</p>
+{% if judge.length %}<table><tr><th scope="col">Candidate</th><th scope="col">Mean answer length (words)</th><th scope="col">Score vs length (Spearman)</th></tr>
+{% for l in judge.length %}<tr><td>{{ l.name }}</td><td>{{ l.words }}</td><td>{{ l.rho }}</td></tr>{% endfor %}</table>{% endif %}
+{% if judge.human %}<p>Agreement with your own scores for {{ judge.human.candidate }}: Spearman {{ judge.human.rho }} on {{ judge.human.n }} rows.</p>{% endif %}
+</div>
+{% endif %}
+
 {% if pairwise %}<h2>Pairwise comparisons</h2><div class="card"><table><tr><th scope="col">A</th><th scope="col">B</th><th scope="col">McNemar exact p</th></tr>
 {% for p in pairwise %}<tr><td>{{ p.a }}</td><td>{{ p.b }}</td><td>{{ p.p }}</td></tr>{% endfor %}</table></div>{% endif %}
 
-<h2>Diagnostics</h2>
+{% if not judge %}<h2>Diagnostics</h2>
 <div class="card">
 <p><strong>Suspected labelling mistakes:</strong>
 {% if redact %}<span class="muted">example ids redacted</span>
@@ -58,6 +69,7 @@ th:first-child,td:first-child{text-align:left} .muted{color:#6a7385;font-size:.8
 {% if elimination_log %}<p><strong>Dropped early to save money:</strong></p><ul>{% for e in elimination_log %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
 </div>
 
+{% endif %}
 <h2>Protocol</h2>
-<div class="card muted">{{ task.n_scoring }} scored examples; {{ task.repeats }} LLM repeat(s); ML cross-validation {{ task.cv_folds }} folds x {{ task.cv_repeats }}; few-shot pool {{ task.shots_pool }}. Full details are in manifest.json and predictions.jsonl next to this file.</div>
+<div class="card muted">{% if judge %}{{ task.n_scoring }} prompts; one answer per prompt for each candidate, scored by the judge. Full details are in manifest.json, predictions.jsonl and judgments.jsonl next to this file.{% else %}{{ task.n_scoring }} scored examples; {{ task.repeats }} LLM repeat(s); ML cross-validation {{ task.cv_folds }} folds x {{ task.cv_repeats }}; few-shot pool {{ task.shots_pool }}. Full details are in manifest.json and predictions.jsonl next to this file.{% endif %}</div>
 </body></html>
