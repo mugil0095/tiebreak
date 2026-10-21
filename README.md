@@ -20,8 +20,8 @@
   <a href="#use-it-on-your-data">Your data</a> &middot;
   <a href="#more">Docs</a> &middot;
   <a href="docs/judge.md">Judge</a> &middot;
-  <a href="#how-it-decides-in-four-lines">How it decides</a> &middot;
-  <a href="#limits-in-short">Limits</a>
+  <a href="#how-it-decides">How it decides</a> &middot;
+  <a href="#limits">Limits</a>
 </p>
 
 **Which model should you use for your task?** tiebreak runs several candidate models (hosted LLM APIs, local LLMs via Ollama, and classic scikit-learn models) on a small labelled sample of *your* data and reports score, cost and latency with 95% confidence intervals. It then recommends the **cheapest model that is statistically tied with the best**, or says plainly that your data cannot separate the candidates and roughly how many more labelled examples would. Everything runs on your machine and produces a self-contained offline `report.html`.
