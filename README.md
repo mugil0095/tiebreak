@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo.svg" alt="tiebreak" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/logo.svg" alt="tiebreak" width="360">
   </picture>
 </p>
 
@@ -27,7 +27,7 @@
 **Which model should you use for your task?** tiebreak runs several candidate models (hosted LLM APIs, local LLMs via Ollama, and classic scikit-learn models) on a small labelled sample of *your* data and reports score, cost and latency with 95% confidence intervals. It then recommends the **cheapest model that is statistically tied with the best**, or says plainly that your data cannot separate the candidates and roughly how many more labelled examples would. Everything runs on your machine and produces a self-contained offline `report.html`.
 
 <p align="center">
-  <img src="docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
+  <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
 </p>
 
 *A real run (not the simulated demo below): 300 labelled rows, 3-class sentiment, one hosted model against a scikit-learn baseline. One task and one sample, so this is an example of the output, not a claim that classic ML beats LLMs in general.*
@@ -67,6 +67,10 @@ tiebreak run --task demo/task.yaml --models demo/models.yaml --data demo/data.cs
 **The demo LLMs are SIMULATED.** The `sim-*` candidates use the `mock` provider: fake models with a preset accuracy that make no API calls. The report carries a SIMULATED banner. The demo only shows how tiebreak works; never use its results to choose a real model.
 
 What the demo currently produces: `sim-large` has the highest score, but **`sim-small` is recommended**, because it is confirmed to be within the 0.05 margin of `sim-large` and is much cheaper.
+
+## Real examples
+
+Three free, reproducible runs on public data (AG News, SMS spam, SST-2) with scikit-learn models and a small local LLM: the winner differs by task, and the LLM was eliminated early on two of them. See [`examples/`](examples/README.md) and the [sample reports](https://mugil0095.github.io/tiebreak/).
 
 ## Use your own data
 

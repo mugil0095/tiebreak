@@ -30,7 +30,33 @@ def make_split(ds: Dataset, task: TaskConfig) -> Split:
     if len(ds) - p < 10:
         raise DataError(f"shots_pool={p} leaves {len(ds) - p} scoring examples; need at least 10")
     perm = np.random.default_rng(task.seed).permutation(len(ds))
-    return Split(ds.take(np.sort(perm[p:])), ds.take(np.sort(perm[:p])))
+    pool = _class_balanced_pool(ds.y, perm, p) if task.type in ("classify", "binary") else perm[:p]
+    keep = np.setdiff1d(perm, pool)
+    return Split(ds.take(keep), ds.take(np.sort(pool)))
+
+
+def _class_balanced_pool(y: np.ndarray, perm: np.ndarray, p: int) -> np.ndarray:
+    """Pick p few-shot examples round-robin across classes (in permuted order), so every class is shown.
+
+    At least two examples of each class stay in the scoring set, as cross-validation needs them.
+    """
+    queues = {c: [i for i in perm if y[i] == c] for c in pd.unique(y[perm])}
+    room = {c: max(len(q) - 2, 0) for c, q in queues.items()}
+    pool: list[int] = []
+    while len(pool) < p:
+        took = False
+        for c, q in queues.items():
+            if len(pool) < p and room[c] > 0:
+                pool.append(q.pop(0))
+                room[c] -= 1
+                took = True
+        if not took:
+            break
+    if len(pool) < p:  # not enough spare examples in the classes: fill the rest at random
+        taken = set(pool)
+        rest = [i for i in perm if i not in taken]
+        pool += rest[: p - len(pool)]
+    return np.asarray(pool, dtype=int)
 
 
 def make_folds(y: np.ndarray, task: TaskConfig) -> list[Fold]:

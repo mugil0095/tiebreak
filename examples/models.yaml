@@ -1,0 +1,15 @@
+# Free to run: two scikit-learn models and one small local LLM (needs Ollama with qwen3.5:0.8b pulled).
+- name: logreg
+  kind: ml
+  estimator: logistic_regression
+- name: boosted
+  kind: ml
+  estimator: hist_gradient_boosting
+- name: forest
+  kind: ml
+  estimator: random_forest
+- name: qwen-small
+  kind: llm
+  provider: ollama
+  model: "qwen3.5:0.8b"
+  params: {think: false}
