@@ -92,6 +92,40 @@ def models(query: str = typer.Argument(None, help="Show prices of models whose i
                "ollama, openai_compatible, or mock (SIMULATED, no API calls).")
 
 
+_HISTORY_COLUMNS = ("run", "date", "task_type", "metric", "model", "kind", "status", "score", "cost_at_volume",
+                    "p50_latency_s")
+
+
+@app.command()
+def history(runs_dir: Path = typer.Option(Path("runs"), "--runs-dir", help="Where runs are stored."),
+            csv: bool = typer.Option(False, "--csv", help="Print CSV instead of a table.")):
+    """List every model you have run, with score, cost and latency, from your saved runs."""
+    from .history import collect_history
+
+    rows, skipped = collect_history(runs_dir)
+
+    def cell(v):
+        return "" if v is None else (f"{v:.4g}" if isinstance(v, float) else str(v))
+
+    table = [[cell(getattr(r, c)) for c in _HISTORY_COLUMNS] for r in rows]
+    if csv:
+        import csv as csv_module
+        import io
+        buf = io.StringIO()
+        w = csv_module.writer(buf, lineterminator="\n")
+        w.writerow(_HISTORY_COLUMNS)
+        w.writerows(table)
+        typer.echo(buf.getvalue().rstrip("\n"))
+    elif table:
+        widths = [max(len(c), *(len(row[i]) for row in table)) for i, c in enumerate(_HISTORY_COLUMNS)]
+        for row in [list(_HISTORY_COLUMNS)] + table:
+            typer.echo("  ".join(v.ljust(w) for v, w in zip(row, widths)).rstrip())
+    else:
+        typer.echo(f"No finished runs found in {runs_dir}.")
+    if skipped:
+        typer.echo(f"skipped {skipped} unreadable run folder{'s' if skipped != 1 else ''}", err=csv)
+
+
 def _load(task, models_path, data, pricing):
     t = load_task(task)
     return t, load_models(models_path), load_dataset(data, t), load_pricing(pricing)
