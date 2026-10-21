@@ -267,7 +267,7 @@ tiebreak history --csv > my-benchmark.csv
 - With 4 or more similar candidates the tool needs MANY examples to confirm ties. Measured: 4 equal models need roughly 2000 examples at a 3-point margin, because best-of-k selection plus Holm correction is conservative.
 - Early elimination of paid models only runs at 120 or more examples, and it is strict. Even so, with 5 truly tied candidates (margin 0.02, shipped settings) it dropped a tied model in 4.7% of simulated runs at n=120 and 7.7% at n=200 (300 seeded runs each).
 - The discordance guard is accuracy-based, even when the metric is macro-F1.
-- Regression metrics and judge scores have no discordance guard, so near-identical regressors (or candidates a judge scores the same) can be declared tied regardless of sample size.
+- Regression metrics and judge scores have no discordance guard: the tie test relies on the bootstrap alone. In one simulated setup (two correlated candidates scored 1 to 5, true gap equal to the margin) it falsely tied the worse candidate about 6% of the time at n=20 and n=100, close to the nominal 5%, so a guard was not added; other score distributions are not simulated. Candidates whose scores are always identical are tied at any sample size, which is also what a judge that cannot tell them apart produces (the report warns when a judge gives every answer the same score).
 - For regression the margin is in the label's units (for `neg_rmse`/`neg_mae`), so the default 0.02 is rarely meaningful: set it yourself. A prediction that cannot be parsed is scored as maximally wrong.
 - The few-shot pool (`shots_pool`) is class-balanced for classification tasks (every class appears, at least 2 examples per class stay for scoring) and random otherwise.
 - `xgboost` needs every configured label to be present in the training data.
@@ -279,7 +279,7 @@ tiebreak history --csv > my-benchmark.csv
 
 ## Statistical validation
 
-`pytest -m slow` runs simulations against known truth (correlated candidates with exactly known accuracies). These cover accuracy and macro-F1 on two or more candidates only; regression metrics and ML candidates are not simulated. Measured, seeded rates:
+`pytest -m slow` runs simulations against known truth (correlated candidates with exactly known accuracies). These cover accuracy and macro-F1 on two or more candidates only; regression metrics and ML candidates are not simulated, apart from the judge-score row. Measured, seeded rates:
 
 | Check | Measured |
 |---|---|
@@ -288,6 +288,7 @@ tiebreak history --csv > my-benchmark.csv
 | False tie at the exact margin boundary, n=100 / n=300 | 0.000 / 0.020 |
 | False tie at the boundary, macro-F1 (3 classes), n=100 / n=300 | 0.000 / 0.010 |
 | False tie at the boundary, non-nested errors (both models make unique errors), n=100 / n=300 | 0.000 / 0.000 |
+| False tie at the boundary, judge scores (integers 1-5, gap = margin 0.25, bootstrap only), n=20 / n=100 | 0.061 / 0.067 |
 | Early elimination drops a tied model, 5 tied candidates, n=120 / n=200 | 0.047 / 0.077 |
 | Power: 2 truly equal models tied, n=800, margin 0.03 | 0.575 |
 
