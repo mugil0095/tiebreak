@@ -227,7 +227,7 @@ def test_false_tie_rate_at_the_boundary_when_both_models_make_unique_errors(n):
     assert rate <= 0.07
 
 
-ELIMINATION_FALSE_DROP_BOUND = {ELIMINATION_MIN_N: 0.08, 200: 0.13}  # measured: see the README Limitations
+ELIMINATION_FALSE_DROP_BOUND = {ELIMINATION_MIN_N: 0.08, 200: 0.13}  # measured: see docs/safety-and-limits.md
 
 
 @pytest.mark.parametrize("n", [ELIMINATION_MIN_N, 200])
@@ -272,7 +272,7 @@ def test_the_judge_score_gap_constant_matches_the_margin():
 def test_false_tie_rate_for_judge_scores_at_the_margin_boundary_stays_small(n):
     """Judge scores are compared through the regression path (neg_mae against the top of the scale) with no
     discordance guard. At a true gap equal to the margin the bootstrap alone should falsely tie the worse
-    candidate at about the nominal 5%; the README quotes the measured rates."""
+    candidate at about the nominal 5%; docs/how-it-works.md quotes the measured rates."""
     from tiebreak.metrics import neg_mae
 
     rng = np.random.default_rng(900 + n)
