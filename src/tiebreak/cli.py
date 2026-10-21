@@ -12,6 +12,7 @@ from .data import DataError, load_dataset
 from .demo import DEMO_FILES, write_demo
 from .engine import SafetyError, new_run_dir, run_experiment
 from .planner import estimate
+from .prices import search_prices
 from .protocol import make_split
 from .report import write_report
 
@@ -72,8 +73,18 @@ def init(demo: bool = typer.Option(False, "--demo", help="Write a synthetic demo
 
 
 @app.command()
-def models():
-    """List built-in ML estimators and LLM providers."""
+def models(query: str = typer.Argument(None, help="Show prices of models whose id contains this text."),
+           limit: int = typer.Option(25, "--limit", min=1, help="Most rows to show with a query.")):
+    """List built-in ML estimators and LLM providers, or (with a query) model prices per million tokens."""
+    if query is not None:
+        rows = search_prices(query, limit)
+        if not rows:
+            typer.echo(f"No models match '{query}' (prices come from LiteLLM's table: pip install \"tiebreak[llm]\").")
+            return
+        typer.echo(f"{'model':<48}{'input $/Mtok':>14}{'output $/Mtok':>15}  source")
+        for r in rows:
+            typer.echo(f"{r.model:<48}{r.input_per_mtok:>14.4f}{r.output_per_mtok:>15.4f}  {r.source}")
+        return
     typer.echo("Built-in ML estimators:")
     for name in ESTIMATORS:
         typer.echo(f"  {name}" + ("   (needs the 'boost' extra: pip install tiebreak[boost])" if name in BOOST_ESTIMATORS else ""))
