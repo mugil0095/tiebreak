@@ -112,3 +112,23 @@ def test_estimate_counts_answer_and_judge_calls_without_calling_anything():
     assert est.cost["a"] == pytest.approx(N * 0.002) and est.cost["judge (judge)"] == pytest.approx(2 * N * 0.001)
     assert est.total == pytest.approx(N * 0.006 + 2 * N * 0.001)
     assert any("answer" in n.lower() and "assum" in n.lower() for n in est.notes)
+
+
+def test_a_candidate_the_judge_cannot_score_is_left_out_and_the_recommendation_is_provisional(tmp_path, monkeypatch):
+    from tiebreak import judge_run
+    from tiebreak.judge import JudgeScore
+
+    class FlakyJudge:
+        name = "judge"
+
+        def score(self, prompt, answer):
+            if len(answer.split()) == 1:  # every answer of the one-word candidate fails
+                return JudgeScore(None, None, 0, None, "503 unavailable", "", failed=True)
+            return JudgeScore(4.0, 0.9, 5, 0.0, None, "4")
+
+    monkeypatch.setattr(judge_run, "build_judge", lambda spec, task: FlakyJudge())
+    data = _run(tmp_path, _task(), [_cand("good", 200, 0.01), _cand("bad", 1, 0.001), _judge()])
+    rows = {r["name"]: r for r in data["candidates"]}
+    assert rows["bad"]["status"] == "excluded" and rows["good"]["status"] == "included"
+    rec = data["recommendation"]
+    assert rec["status"] == "provisional" and rec["winner"] == "good" and "bad" in rec["reason"]

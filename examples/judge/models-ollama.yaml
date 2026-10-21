@@ -1,0 +1,5 @@
+# Free to run with Ollama (ollama pull qwen3.5:0.8b). One small local model plays all roles, so the report
+# warns that the judge is also a candidate: use it to see how the pieces work, not to trust the scores.
+- {name: qwen-brief, kind: llm, provider: ollama, model: "qwen3.5:0.8b", params: {think: false, max_tokens: 60}}
+- {name: qwen-full, kind: llm, provider: ollama, model: "qwen3.5:0.8b", params: {think: false, max_tokens: 300}}
+- {name: judge, kind: llm, provider: ollama, model: "qwen3.5:0.8b", role: judge, params: {think: false, max_tokens: 8}}

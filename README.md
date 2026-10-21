@@ -20,6 +20,7 @@
   <a href="#use-your-own-data">Your data</a> &middot;
   <a href="#notebook">Notebook</a> &middot;
   <a href="#web-app">Web app</a> &middot;
+  <a href="#prompts-without-right-answers-judge">Judge</a> &middot;
   <a href="#how-the-decision-works">How it decides</a> &middot;
   <a href="#limitations">Limitations</a>
 </p>
@@ -195,6 +196,52 @@ A single page where you paste the task and models, pick a data file (or click **
 - There is no authentication: anyone logged in on the same computer can reach 127.0.0.1:PORT while it runs.
 - It is not a hosted service and has no accounts or authentication; do not expose it to a network.
 
+## Prompts without right answers (judge)
+
+No labels? Give tiebreak prompts only. Every candidate answers every prompt, a **judge model** scores each answer, and the same tie test picks the cheapest candidate tied with the best.
+
+```yaml
+# task.yaml
+type: judge
+prompt_column: prompt
+scale: [1, 5]            # the judge scores 1 (worst) to 5 (best)
+margin: 0.25             # "tied" means within 0.25 score points of the best
+# rubric: "Prefer short, correct, practical answers."    # optional
+# human_score_column: human   # optional: your own scores for the FIRST candidate's answers
+```
+
+```yaml
+# models.yaml: candidates as usual, plus exactly one judge
+- {name: brief, kind: llm, provider: ollama, model: "<local model tag>", params: {think: false, max_tokens: 60}}
+- {name: full, kind: llm, provider: ollama, model: "<local model tag>", params: {think: false, max_tokens: 300}}
+- {name: judge, kind: llm, provider: typesafe, model: jev-1.14.0, role: judge}
+```
+
+```bash
+tiebreak run --task examples/judge/task.yaml --models examples/judge/models.yaml --data examples/judge/prompts.csv   # offline demo, SIMULATED models
+tiebreak run --task task.yaml --models models.yaml --data prompts.csv --yes-send-data                                # a hosted judge needs this flag
+```
+
+**Judges.** `provider: typesafe` uses TypeSafe's Jev through a `Score` question (`pip install "tiebreak[judge]"`, then set `TYPESAFE_API_KEY` in your environment yourself; tiebreak only checks that it is set and never writes it to the run folder). Jev is billed per input token only ($0.042 per million, output free, per TypeSafe's docs on 2026-10-18), so judging a few hundred answers costs cents. Any other provider (Ollama, LiteLLM, an OpenAI-compatible server) works as a judge too: it is asked for a single integer. There is no default judge: you choose one.
+
+**What the report adds.** A Judge section states that the scores come from a model and not from ground truth, and shows the judge's cost (counted separately from each candidate's cost and included in `--max-cost`), the share of unusable replies and low-confidence judgments, each candidate's answer length and how strongly score follows length, a warning if the judge model is also a candidate, and, if you supplied `human_score_column`, the Spearman correlation between the judge and your own scores.
+
+**Limits to know.**
+- A judge has biases (longer answers, its own style or output). Score 30 to 50 answers yourself and check the agreement before trusting small differences.
+- Jev's quality as a judge of open-ended answers has not been measured here; the human check is how you find out.
+- Each candidate answers each prompt once. If the judge fails on any answer, that candidate is left out of the comparison (and the recommendation is marked provisional) until you `--resume`.
+- The tie test for judge scores has no discordance guard (see Limitations).
+
+## Prices and history
+
+```bash
+tiebreak models gpt-4o-mini        # input/output price per million tokens, from LiteLLM's bundled table
+tiebreak history                   # every model you have run: score, cost, latency, from your runs/ folder
+tiebreak history --csv > my-benchmark.csv
+```
+
+`tiebreak models` with no query lists the built-in estimators as before. Prices in a run come from your `pricing.yaml`, then the cost the provider reports; the lookup is for shortlisting candidates before you spend anything. `history` is your own benchmark: it only contains models you ran, on your tasks.
+
 ## How the decision works
 
 - **Equivalence margin.** You choose a margin (default 0.02 on the primary metric). A candidate is *tied* with the best only when we are 95% confident (Holm-adjusted for the number of comparisons) that it is no more than the margin below the best. "Not significantly different" is never treated as "tied".
@@ -215,14 +262,14 @@ A single page where you paste the task and models, pick a data file (or click **
 
 ## Limitations
 
-- Only tasks with ground-truth labels are supported (no open-ended generation judged by an LLM).
+- Tasks need ground-truth labels, or a judge model (see above): judge scores are only as good as the judge.
 - Small samples are often inconclusive; the report then says "cannot separate" instead of guessing.
 - With 4 or more similar candidates the tool needs MANY examples to confirm ties. Measured: 4 equal models need roughly 2000 examples at a 3-point margin, because best-of-k selection plus Holm correction is conservative.
 - Early elimination of paid models only runs at 120 or more examples, and it is strict. Even so, with 5 truly tied candidates (margin 0.02, shipped settings) it dropped a tied model in 4.7% of simulated runs at n=120 and 7.7% at n=200 (300 seeded runs each).
 - The discordance guard is accuracy-based, even when the metric is macro-F1.
-- Regression metrics have no discordance guard, so near-identical regressors can be declared tied regardless of sample size.
+- Regression metrics and judge scores have no discordance guard, so near-identical regressors (or candidates a judge scores the same) can be declared tied regardless of sample size.
 - For regression the margin is in the label's units (for `neg_rmse`/`neg_mae`), so the default 0.02 is rarely meaningful: set it yourself. A prediction that cannot be parsed is scored as maximally wrong.
-- The few-shot pool (`shots_pool`) is a random sample, not stratified by class.
+- The few-shot pool (`shots_pool`) is class-balanced for classification tasks (every class appears, at least 2 examples per class stay for scoring) and random otherwise.
 - `xgboost` needs every configured label to be present in the training data.
 - Unknown or unpriced models are shown as the most expensive in the cost ranking.
 - The `mock` provider supports classification tasks only.
