@@ -47,3 +47,17 @@ A real run of `models-ollama.yaml` (Qwen3.5 0.8B as two candidates, "brief" with
 - **The 0.8B judge gave all 40 answers a 5.** It cannot tell the candidates apart, so tiebreak reported them as tied and recommended the cheaper one (qwen-brief), and said plainly in the report that the judge scored every answer the same and that this tie says nothing about quality. It also warned that the judge is one of the candidates.
 - **That is the point of the warnings.** A weak or self-interested judge produces confident-looking ties. Use a stronger judge (for example Jev) and score some answers yourself (`human_score_column`) before trusting a judge-based recommendation.
 - Not measured here: how Jev behaves as a judge on these prompts.
+
+### The same prompts with Jev as the judge
+
+The same candidates judged by Jev (`models-jev.yaml`, `jev-1.14.0`), on the same 20 prompts:
+
+| | Mean judge score (1-5) | 95% interval | Mean answer length | Median latency per answer |
+|---|---|---|---|---|
+| qwen-brief | 3.08 | 2.83 to 3.40 | 42 words | 4.6 s |
+| qwen-full | **3.55** | 3.15 to 3.94 | 167 words | 13.9 s |
+
+- **Jev tells the answers apart.** Scores ran from 2.06 to 4.92 (standard deviation 0.65 for brief, 0.90 for full), where the 0.8B local judge gave every answer a 5. tiebreak recommended qwen-full: its lead of 0.46 points is bigger than the 0.25 margin, but the intervals overlap, so treat it as a lean, not a result.
+- **It costs almost nothing.** 40 judgments used 22,925 input tokens: $0.00096 in total, which matches 22,925 x $0.042 per million.
+- **Longer was not better here.** For qwen-full the score fell as answers got longer (Spearman -0.73). In the lowest- and highest-scored answers I read (6 of 40), Jev rewarded short, correct answers to prompts that asked for brevity ("under 60 words", "two sentences") and marked down long or cut-off answers to them. That is a reading of a handful of answers, not a validation.
+- **Not validated against people.** Only 1 of 40 judgments had confidence below 0.5, but nobody has compared these scores with human scores yet. Add a `human_score_column` for the first candidate's answers to see the agreement in the report.
