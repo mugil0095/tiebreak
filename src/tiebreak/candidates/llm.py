@@ -176,7 +176,7 @@ class LiteLLMCompleter:
 
 
 def check_task_support(spec: ModelSpec, task: TaskConfig) -> None:
-    if spec.provider == "mock" and spec.kind == "llm" and task.type not in ("classify", "binary"):
+    if spec.provider == "mock" and spec.kind == "llm" and task.type not in ("classify", "binary", "judge"):
         raise ValueError(
             f"candidate '{spec.name}': the mock provider supports classification tasks only (classify, binary), "
             f"not '{task.type}'")
