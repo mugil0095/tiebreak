@@ -28,6 +28,7 @@ class JudgeScore:
     cost_usd: float | None
     error: str | None
     raw: str = ""
+    failed: bool = False  # the call itself failed (provider or service error), as opposed to an unreadable reply
 
 
 class Judge(Protocol):
@@ -69,7 +70,7 @@ def judge_prompt(task: TaskConfig, prompt: str, answer: str) -> str:
 def _error_score(e: Exception) -> JudgeScore:
     from .runner import _scrub
 
-    return JudgeScore(None, None, 0, None, " ".join(_scrub(str(e) or type(e).__name__).split())[:200])
+    return JudgeScore(None, None, 0, None, " ".join(_scrub(str(e) or type(e).__name__).split())[:200], failed=True)
 
 
 class MockJudge:

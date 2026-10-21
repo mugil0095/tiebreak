@@ -55,6 +55,7 @@ def test_litellm_judge_parses_integer_and_rejects_prose():
     assert (first.value, first.error, first.tokens_in, first.cost_usd) == (4.0, None, 11, 0.0004)
     assert second.value == 5.0
     assert prose.value is None and prose.error == "unparseable judge reply" and prose.raw == "I think it is good"
+    assert prose.failed is False and first.failed is False  # a reply we could not read is not a failed call
     assert outside.value is None and outside.error == "unparseable judge reply"
 
 
@@ -65,6 +66,7 @@ def test_litellm_judge_turns_completer_errors_into_scores_with_an_error():
 
     s = LiteLLMJudge(_spec(provider="ollama"), TASK, completer=Boom()).score("q", "a")
     assert s.value is None and "provider down" in s.error
+    assert s.failed is True
 
 
 def test_judge_prompt_quotes_answer_as_data():
@@ -132,6 +134,7 @@ def test_jev_judge_clamps_to_the_scale_and_reports_service_errors():
 
     s = JevJudge(_spec(provider="typesafe", model="jev-1.14.0"), TASK, sdk=(Down(), _fake_score)).score("q", "a")
     assert s.value is None and "503" in s.error
+    assert s.failed is True
 
 
 def test_jev_without_sdk_gives_install_hint(monkeypatch):
