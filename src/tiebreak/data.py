@@ -69,6 +69,8 @@ def load_dataset(path, task: TaskConfig) -> Dataset:
     if tc and tc not in df.columns:
         kind = "prompt" if judging else "text"
         raise DataError(f"{kind} column '{tc}' not found; columns are {list(df.columns)}")
+    if judging and task.human_score_column and task.human_score_column not in df.columns:
+        raise DataError(f"human score column '{task.human_score_column}' not found; columns are {list(df.columns)}")
 
     if not judging:
         missing = df.index[df[lc].isna() | (df[lc].astype(str).str.strip() == "")].tolist()

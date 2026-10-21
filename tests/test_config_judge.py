@@ -96,3 +96,10 @@ def test_judge_dataset_rejects_missing_prompt_column_and_empty_prompts(tmp_path)
     p.write_text("id,prompt\nq1,hi\nq2,\n", encoding="utf-8")
     with pytest.raises(DataError, match="empty"):
         load_dataset(p, TaskConfig(**JUDGE_TASK))
+
+
+def test_judge_dataset_rejects_a_missing_human_score_column(tmp_path):
+    p = tmp_path / "p.csv"
+    p.write_text("id,prompt\nq1,hi\nq2,bye\n", encoding="utf-8")
+    with pytest.raises(DataError, match="human score column 'human'"):
+        load_dataset(p, TaskConfig(**JUDGE_TASK, human_score_column="human"))
