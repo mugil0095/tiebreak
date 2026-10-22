@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .config import ModelSpec, TaskConfig
+from .install import install_hint
 from .prices import lookup_price
 
 JEV_KEY_ENV = "TYPESAFE_API_KEY"
@@ -130,7 +131,7 @@ class JevJudge:
             try:
                 import typesafe_sdk
             except ImportError as e:
-                raise ImportError('the Jev judge needs the TypeSafe SDK: pip install "tiebreak[judge]"') from e
+                raise ImportError(f"the Jev judge needs the TypeSafe SDK: {install_hint('judge')}") from e
             env = spec.api_key_env or JEV_KEY_ENV
             if not os.environ.get(env):  # name the variable, never a value
                 raise ValueError(f"environment variable {env} is not set or empty (create a key at console.typesafe.ai)")

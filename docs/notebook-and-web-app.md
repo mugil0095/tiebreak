@@ -15,7 +15,7 @@ c.save_report("r.html")                   # the same self-contained offline repo
 ## Web app
 
 ```bash
-pip install "tiebreak[web]"
+pip install "tiebreak[web] @ git+https://github.com/mugil0095/tiebreak.git"
 tiebreak serve                 # http://127.0.0.1:8765 ; options: --port, --runs-dir
 ```
 

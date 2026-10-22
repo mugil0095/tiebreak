@@ -68,6 +68,15 @@ tiebreak run --task demo/task.yaml --models demo/models.yaml --data demo/data.cs
 
 What the demo currently produces: `sim-large` has the highest score, but **`sim-small` is recommended**, because it is confirmed to be within the 0.05 margin of `sim-large` and is much cheaper.
 
+## Install
+
+tiebreak is not on PyPI; install it straight from GitHub:
+
+```bash
+pip install "git+https://github.com/mugil0095/tiebreak.git"                                              # latest
+pip install "tiebreak[llm,web,judge] @ git+https://github.com/mugil0095/tiebreak.git@v0.3.0"   # a release, with extras
+```
+
 ## Real examples
 
 Three free, reproducible runs on public data (AG News, SMS spam, SST-2) with scikit-learn models and a small local LLM: the winner differs by task, and the LLM was eliminated early on two of them. See [`examples/`](examples/README.md) and the [sample reports](https://mugil0095.github.io/tiebreak/).
@@ -85,7 +94,7 @@ margin: 0.02              # "tied" means within this much of the best score
 
 ```yaml
 # models.yaml
-- {name: hosted-a, kind: llm, provider: anthropic, model: "<model id from your account>"}   # any LiteLLM provider: pip install "tiebreak[llm]"
+- {name: hosted-a, kind: llm, provider: anthropic, model: "<model id from your account>"}   # any LiteLLM provider (needs the llm extra, see Install)
 - {name: local-small, kind: llm, provider: ollama, model: "<local model tag>"}
 - {name: logreg, kind: ml, estimator: logistic_regression}
 ```

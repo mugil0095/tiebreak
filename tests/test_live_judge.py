@@ -1,7 +1,7 @@
 """Live judge tests. Never run in CI or in the default suite.
 
 Ollama:  TIEBREAK_LIVE_OLLAMA_MODEL=qwen3.5:0.8b pytest -m live tests/test_live_judge.py
-Jev:     TYPESAFE_API_KEY=...  pytest -m live tests/test_live_judge.py   (needs: pip install "tiebreak[judge]"; spends a few cents at most)
+Jev:     TYPESAFE_API_KEY=...  pytest -m live tests/test_live_judge.py   (needs: pip install "tiebreak[judge] @ git+https://github.com/mugil0095/tiebreak.git"; spends a few cents at most)
 """
 import os
 import urllib.request

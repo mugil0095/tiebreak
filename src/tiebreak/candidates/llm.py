@@ -13,6 +13,7 @@ import numpy as np
 
 from ..config import ModelSpec, TaskConfig
 from ..data import Dataset
+from ..install import install_hint
 from ..parser import parse_answer
 from .base import CallRecord, CandidateResult, aggregate
 
@@ -108,7 +109,7 @@ class OpenAICompatCompleter:
         try:
             import httpx
         except ImportError as e:
-            raise ImportError("httpx is not installed; run: pip install tiebreak[llm]") from e
+            raise ImportError(f"httpx is not installed; run: {install_hint('llm')}") from e
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.model, self.api_key_env = model, api_key_env
         self.client = client or httpx.Client(timeout=60)
@@ -143,7 +144,7 @@ class LiteLLMCompleter:
         try:
             import litellm
         except ImportError as e:
-            raise ImportError("litellm is not installed; run: pip install tiebreak[llm]") from e
+            raise ImportError(f"litellm is not installed; run: {install_hint('llm')}") from e
         self.litellm, self.params = litellm, params
         self.model_id = f"{provider}/{model}"
         self.base_url, self.api_key_env = base_url, api_key_env
