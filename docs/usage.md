@@ -21,7 +21,7 @@ volume: 10000
 # models.yaml
 - name: hosted-a
   kind: llm
-  provider: anthropic            # any LiteLLM provider id (needs: pip install "tiebreak[llm]")
+  provider: anthropic            # any LiteLLM provider id (needs: pip install "tiebreak[llm] @ git+https://github.com/mugil0095/tiebreak.git")
   model: "<model id from your account>"
 - name: local-small
   kind: llm
@@ -74,7 +74,7 @@ If a provider still answers 429, tiebreak waits 8, 16, 32 then 60 seconds betwee
 <details>
 <summary><b>Verify with your own provider</b></summary>
 
-The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm]"` and your own key):
+The demo models are simulated, so confirm a real provider end to end with a tiny, capped run (needs `pip install "tiebreak[llm] @ git+https://github.com/mugil0095/tiebreak.git"` and your own key):
 
 ```yaml
 # my-models.yaml: one real hosted candidate plus a free baseline

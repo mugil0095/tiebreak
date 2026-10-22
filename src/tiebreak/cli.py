@@ -11,6 +11,7 @@ from .config import load_models, load_pricing, load_task
 from .data import DataError, load_dataset
 from .demo import DEMO_FILES, write_demo
 from .engine import SafetyError, new_run_dir, run_experiment
+from .install import install_hint
 from .planner import estimate
 from .prices import search_prices
 from .protocol import make_split
@@ -79,7 +80,7 @@ def models(query: str = typer.Argument(None, help="Show prices of models whose i
     if query is not None:
         rows = search_prices(query, limit)
         if not rows:
-            typer.echo(f"No models match '{query}' (prices come from LiteLLM's table: pip install \"tiebreak[llm]\").")
+            typer.echo(f"No models match '{query}' (prices come from LiteLLM's table: {install_hint('llm')}).")
             return
         typer.echo(f"{'model':<48}{'input $/Mtok':>14}{'output $/Mtok':>15}  source")
         for r in rows:
@@ -87,7 +88,7 @@ def models(query: str = typer.Argument(None, help="Show prices of models whose i
         return
     typer.echo("Built-in ML estimators:")
     for name in ESTIMATORS:
-        typer.echo(f"  {name}" + ("   (needs the 'boost' extra: pip install tiebreak[boost])" if name in BOOST_ESTIMATORS else ""))
+        typer.echo(f"  {name}" + (f"   (needs the 'boost' extra: {install_hint('boost')})" if name in BOOST_ESTIMATORS else ""))
     typer.echo("LLM candidates use provider/model ids from models.yaml: any LiteLLM provider (needs the 'llm' extra), "
                "ollama, openai_compatible, or mock (SIMULATED, no API calls).")
 
@@ -257,6 +258,6 @@ def serve(port: int = typer.Option(8765, "--port", min=1024, max=65535, help="Po
 
         from .web.app import create_app
     except ImportError:
-        _fail(ImportError('the web app needs extra packages: pip install "tiebreak[web]"'))
+        _fail(ImportError(f"the web app needs extra packages: {install_hint('web')}"))
     typer.echo(f"tiebreak is running at http://127.0.0.1:{port}  (this computer only; Ctrl-C to stop)")
     uvicorn.run(create_app(runs_dir), host="127.0.0.1", port=port, log_level="warning")

@@ -19,6 +19,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from ..config import ModelSpec, TaskConfig
 from ..data import DataError, concat
+from ..install import install_hint
 from ..protocol import Fold, Split
 from .base import CandidateResult, aggregate
 
@@ -42,14 +43,14 @@ def _make_estimator(name: str, classification: bool, seed: int):
         try:
             import xgboost as xgb
         except ImportError as e:
-            raise ImportError("xgboost is not installed; run: pip install tiebreak[boost]") from e
+            raise ImportError(f"xgboost is not installed; run: {install_hint('boost')}") from e
         cls = xgb.XGBClassifier if classification else xgb.XGBRegressor
         return cls(n_estimators=200, random_state=seed, verbosity=0)
     if name == "lightgbm":
         try:
             import lightgbm as lgb
         except ImportError as e:
-            raise ImportError("lightgbm is not installed; run: pip install tiebreak[boost]") from e
+            raise ImportError(f"lightgbm is not installed; run: {install_hint('boost')}") from e
         cls = lgb.LGBMClassifier if classification else lgb.LGBMRegressor
         return cls(n_estimators=200, random_state=seed, verbose=-1)
     kind = "classification" if classification else "regression"
