@@ -1,8 +1,6 @@
-# Free-tier comparison: two Gemini Flash-Lite models (500 requests per day each), two Gemma 4 models and a scikit-learn baseline.
-# Set your own key first (PowerShell): $env:GEMINI_API_KEY = "...". One 300-row task uses 300 of each model's daily requests.
+# Free-tier Gemini comparison: two Flash-Lite models (500 requests per day each) plus a scikit-learn baseline.
+# Set your own key first (PowerShell): $env:GEMINI_API_KEY = "...". One 300-row task uses 300 of each model's 500 daily requests, so run one task per day.
 # The three non-Lite Flash models allow only 20 requests per day on the free tier: see models-all.yaml (needs a paid key).
 - {name: logreg, kind: ml, estimator: logistic_regression}
 - {name: flash-lite-3.1, kind: llm, provider: gemini, model: "gemini-3.1-flash-lite", api_key_env: GEMINI_API_KEY, requests_per_minute: 12, params: {max_tokens: 512}}
 - {name: flash-lite-3.5, kind: llm, provider: gemini, model: "gemini-3.5-flash-lite", api_key_env: GEMINI_API_KEY, requests_per_minute: 12, params: {max_tokens: 256}}
-- {name: gemma-4-26b, kind: llm, provider: gemini, model: "gemma-4-26b-a4b-it", api_key_env: GEMINI_API_KEY, requests_per_minute: 15, params: {max_tokens: 1024}}
-- {name: gemma-4-31b, kind: llm, provider: gemini, model: "gemma-4-31b-it", api_key_env: GEMINI_API_KEY, requests_per_minute: 15, params: {max_tokens: 1024}}

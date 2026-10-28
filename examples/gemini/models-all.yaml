@@ -7,5 +7,3 @@
 - {name: flash-3-preview, kind: llm, provider: gemini, model: "gemini-3-flash-preview", api_key_env: GEMINI_API_KEY, requests_per_minute: 4, params: {max_tokens: 1024}}
 - {name: flash-3.6, kind: llm, provider: gemini, model: "gemini-3.6-flash", api_key_env: GEMINI_API_KEY, requests_per_minute: 4, params: {max_tokens: 1024}}
 - {name: flash-3.8, kind: llm, provider: gemini, model: "gemini-3.8-flash", api_key_env: GEMINI_API_KEY, requests_per_minute: 4, params: {max_tokens: 1024}}
-- {name: gemma-4-26b, kind: llm, provider: gemini, model: "gemma-4-26b-a4b-it", api_key_env: GEMINI_API_KEY, requests_per_minute: 15, params: {max_tokens: 1024}}
-- {name: gemma-4-31b, kind: llm, provider: gemini, model: "gemma-4-31b-it", api_key_env: GEMINI_API_KEY, requests_per_minute: 15, params: {max_tokens: 1024}}
