@@ -21,7 +21,7 @@ Task files: `agnews/`, `spam/`, `sentiment/`; candidates: `models.yaml`. All use
 ## What these runs show
 
 - **The winner changes with the task.** Classic ML won two tasks and the small LLM won the third. No single model is "best", which is the point of measuring.
-- **Nothing was tied.** In all three runs the best candidate was clearly ahead, so the recommendation is simply the best one. For a run where a cheaper model ties a more expensive one, see the logistic regression vs Gemini result in the main README.
+- **Nothing was tied.** In all three runs the best candidate was clearly ahead, so the recommendation is simply the best one. For a run where tiebreak says it cannot separate a cheaper model from the best, see the Gemini Flash-Lite run below.
 - **Early elimination works as designed.** On AG News and spam the LLM was far behind after 100 of 300 examples, so tiebreak stopped calling it. Its score covers those 100 examples only.
 - **The small LLM labels every SMS "spam".** On the first 100 messages it processed (15 spam, 85 ham) it answered "spam" every time, so 85 answers were wrong. That is real model behaviour with this prompt, not a parsing problem.
 
@@ -32,6 +32,20 @@ Task files: `agnews/`, `spam/`, `sentiment/`; candidates: `models.yaml`. All use
 - Only one small local LLM was tested. These runs say nothing about larger models.
 - The local LLM's cost is latency times a compute price per hour, so it is an estimate, not a bill.
 - Runs used a GTX 1650, so LLM latency (about 0.8 s median per call) is specific to that machine.
+
+## Gemini Flash-Lite on AG News (hosted models)
+
+Two hosted models and a baseline on the same 300 AG News headlines (`examples/gemini/models.yaml`, run with `--yes-send-data`; you supply your own `GEMINI_API_KEY`):
+
+| | macro-F1 (95% CI) | Cost per 10,000 predictions | Median latency |
+|---|---|---|---|
+| Gemini 3.5 Flash-Lite | **0.884** [0.846, 0.917] | $0.2956 | 0.94 s |
+| Gemini 3.1 Flash-Lite | 0.846 [0.804, 0.884] | $0.2374 | 2.73 s |
+| Logistic regression | 0.692 [0.638, 0.742] | $0.00004 | 0.13 ms |
+
+- **tiebreak's verdict was "inconclusive".** The logistic regression is clearly worse. Gemini 3.1 is about 20% cheaper, and its score is 0.038 below 3.5 (a separate paired bootstrap of the gap gives +0.016 to +0.063, against the 0.05 margin), so the data cannot confirm it is within the margin. tiebreak estimated about 876 more labelled examples to settle it and named 3.5 as the safe choice.
+- **The newer model wins where they differ.** The two disagree on 13 of 300 headlines; 3.5 is right on 12 of them.
+- **Caveats.** 300 rows, one task. Costs are the provider's list price for the tokens used (the free tier bills nothing). The free tier allows only 20 requests per day for Gemini 3 Flash, 3.6 Flash and 3.8 Flash, so they are not in this run; `examples/gemini/models-all.yaml` lists all five for a paid key.
 
 ## Judge example (prompts only)
 
