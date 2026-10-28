@@ -27,10 +27,10 @@
 **Which model should you use for your task?** tiebreak runs several candidate models (hosted LLM APIs, local LLMs via Ollama, and classic scikit-learn models) on a small labelled sample of *your* data and reports score, cost and latency with 95% confidence intervals. It then recommends the **cheapest model that is statistically tied with the best**, or says plainly that your data cannot separate the candidates and roughly how many more labelled examples would. Everything runs on your machine and produces a self-contained offline `report.html`.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/real-run.png" alt="A real run: logistic regression (0.845) is statistically tied with Gemini 3.5 Flash Lite (0.825) at a tiny fraction of the cost and latency" width="860">
+  <img src="https://raw.githubusercontent.com/mugil0095/tiebreak/master/docs/assets/real-run.png" alt="A real run on 300 AG News headlines: logistic regression 0.692, Gemini 3.1 Flash-Lite 0.846, Gemini 3.5 Flash-Lite 0.884; tiebreak cannot separate the cheaper Gemini model from the best and names the newer one as the safe choice" width="860">
 </p>
 
-*A real run (not the simulated demo below): 300 labelled rows, 3-class sentiment, one hosted model against a scikit-learn baseline. One task and one sample, so this is an example of the output, not a claim that classic ML beats LLMs in general.*
+*A real run on real data (300 AG News headlines, 4 topics): two hosted Gemini Flash-Lite models against a logistic regression. The logistic regression is clearly worse. Gemini 3.1 Flash-Lite is about 20% cheaper than 3.5 but 0.038 F1 below it, and with 300 rows tiebreak cannot confirm it is within the 0.05 margin, so it says so (about 876 more labelled rows would settle it) and names 3.5 as the safe choice. One task and one sample; cost is the provider's list price (the free tier bills nothing).*
 
 ## Why tiebreak
 
@@ -79,7 +79,7 @@ pip install "tiebreak[llm,web,judge] @ git+https://github.com/mugil0095/tiebreak
 
 ## Real examples
 
-Three free, reproducible runs on public data (AG News, SMS spam, SST-2) with scikit-learn models and a small local LLM: the winner differs by task, and the LLM was eliminated early on two of them. See [`examples/`](examples/README.md) and the [sample reports](https://mugil0095.github.io/tiebreak/).
+Reproducible runs on public data (AG News, SMS spam, SST-2). With scikit-learn models and a small local LLM the winner differs by task, and the LLM was eliminated early on two of them. With two hosted Gemini Flash-Lite models on AG News, tiebreak said the cheaper one could not be separated from the best and asked for more labels (see the picture above). See [`examples/`](examples/README.md) and the [sample reports](https://mugil0095.github.io/tiebreak/).
 
 ## Use it on your data
 
