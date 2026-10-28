@@ -45,7 +45,6 @@ Two hosted models and a baseline on the same 300 AG News headlines (`examples/ge
 
 - **tiebreak's verdict was "inconclusive".** The logistic regression is clearly worse. Gemini 3.1 is about 20% cheaper, and its score is 0.038 below 3.5 (a separate paired bootstrap of the gap gives +0.016 to +0.063, against the 0.05 margin), so the data cannot confirm it is within the margin. tiebreak estimated about 876 more labelled examples to settle it and named 3.5 as the safe choice.
 - **The newer model wins where they differ.** The two disagree on 13 of 300 headlines; 3.5 is right on 12 of them.
-- **Gemma 4 is in the config too, without results yet.** `examples/gemini/models.yaml` also lists Gemma 4 26B (a mixture-of-experts model with 4B active parameters) and Gemma 4 31B, served free through Google's API (LiteLLM's price table lists them at $0). Their scores are not in the table above because that run only had the two Flash-Lite models; add them with `--resume` on the same run folder (the 600 saved Flash-Lite calls are reused).
 - **Caveats.** 300 rows, one task. Costs are the provider's list price for the tokens used (the free tier bills nothing). The free tier allows only 20 requests per day for Gemini 3 Flash, 3.6 Flash and 3.8 Flash, so they are not in this run; `examples/gemini/models-all.yaml` lists all five for a paid key.
 
 ## Judge example (prompts only)
