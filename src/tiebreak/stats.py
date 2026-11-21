@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
-from scipy.stats import binomtest
+from scipy.stats import binomtest, t as student_t
 
 
 GUARD_PRIOR = 2.0  # Dirichlet pseudo-count per cell; chosen by the false-tie experiment (0.5 gave 11% at n=100)
@@ -136,18 +136,89 @@ def guard_extra_examples(
         m *= 1.25
 
 
+GUARD_DF = 2.0  # pseudo-degrees of freedom of the variance prior in mean_guard_p (cf. GUARD_PRIOR above)
+
+
+def _mean_guard_p_from(dbar: float, s2: float, s0: float, n: int, margin: float, prior_df: float) -> float:
+    df = prior_df + n - 1
+    var = (prior_df * s0 + (n - 1) * s2) / df
+    se = math.sqrt(var / n)
+    if se == 0:  # no variation at all (e.g. a judge that scores everything the same): nothing to measure
+        return 0.0 if dbar < margin else 1.0
+    return float(student_t.cdf((dbar - margin) / se, df))
+
+
+def mean_guard_p(
+    best_scores: np.ndarray, cand_scores: np.ndarray, margin: float, prior_df: float | None = None
+) -> float:
+    """t-test guard for metrics that are the mean of a per-example score (neg_mae, hence judge scores).
+
+    Like the discordance guard for classification, it covers a weakness of the bootstrap: when two
+    candidates score almost the same on a small sample, the resampled loss has almost no variance.
+    One-sided paired t-test of H0: mean(best - candidate) >= margin, where the variance of the
+    differences is blended with a prior of GUARD_DF pseudo-degrees of freedom at the pooled variance
+    of the scores themselves, so a handful of identical scores is not evidence of a tie.
+    Small p = confirmed within the margin. Constant scores (no variation anywhere) are left tied.
+    """
+    prior_df = GUARD_DF if prior_df is None else prior_df
+    best = np.asarray(best_scores, dtype=float)
+    cand = np.asarray(cand_scores, dtype=float)
+    n = len(best)
+    if n < 2:
+        return 1.0
+    d = best - cand
+    s0 = float(np.var(np.concatenate([best, cand]), ddof=1))
+    return _mean_guard_p_from(float(d.mean()), float(d.var(ddof=1)), s0, n, margin, prior_df)
+
+
+def mean_guard_extra_examples(
+    best_scores: np.ndarray, cand_scores: np.ndarray, margin: float, level: float, max_mult: float = GUARD_MAX_MULT
+) -> int | None:
+    """Extra examples (same mean and variances, n scaled by m) until mean_guard_p <= level.
+
+    None when the observed loss already reaches the margin (no slack); 0 when the guard already
+    passes; if the search cap (100x the data) is hit, returns the cap's extra examples.
+    """
+    best = np.asarray(best_scores, dtype=float)
+    cand = np.asarray(cand_scores, dtype=float)
+    n = len(best)
+    d = best - cand
+    if n < 2 or float(d.mean()) >= margin:
+        return None
+    dbar, s2 = float(d.mean()), float(d.var(ddof=1))
+    s0 = float(np.var(np.concatenate([best, cand]), ddof=1))
+
+    def p_at(n_new: int) -> float:
+        return _mean_guard_p_from(dbar, s2, s0, n_new, margin, GUARD_DF)
+
+    if p_at(n) <= level:
+        return 0
+    m = 1.25
+    while True:
+        m = min(m, max_mult)
+        n_new = math.ceil(n * m)
+        if p_at(n_new) <= level:
+            return n_new - n
+        if m >= max_mult:
+            return math.ceil(n * max_mult) - n
+        m *= 1.25
+
+
 def equivalent_set(
-    boot: BootstrapResult, margin: float, alpha: float = 0.05, guard: bool = True
+    boot: BootstrapResult, margin: float, alpha: float = 0.05, guard: bool = True,
+    row_score: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
 ) -> dict[str, bool]:
     """A candidate is equivalent to the best when, with Holm-adjusted confidence,
     its loss relative to the best is no more than `margin`.
 
     guard=True (classification metrics) takes p = max(p_bootstrap, p_guard) so that
     candidates which almost never disagree with the best are not tied by default.
-    guard=False uses the bootstrap alone: use it for regression metrics, with the
+    guard=False with a row_score (the per-example score whose mean is the metric: neg_mae,
+    hence judge scores) takes p = max(p_bootstrap, p_mean_guard) in the same way.
+    guard=False without a row_score uses the bootstrap alone (neg_rmse), with the
     limitation that near-identical predictions then have no resampling variance and
     are declared equivalent regardless of sample size. The engine passes
-    guard=metric.classification.
+    guard=metric.classification and row_score=metric.row_score.
     """
     out = {boot.best: True}
     others = [j for j, m in enumerate(boot.names) if m != boot.best]
@@ -155,9 +226,16 @@ def equivalent_set(
         return out
     B = boot.loss.shape[0]
     pvals = [(1 + int(np.sum(boot.loss[:, j] > margin))) / (B + 1) for j in others]
-    if guard and boot.y is not None and boot.preds is not None:
+    have_data = boot.y is not None and boot.preds is not None
+    if guard and have_data:
         pvals = [
             max(p, guard_p(boot.y, boot.preds[boot.best], boot.preds[boot.names[j]], margin, seed=boot.seed))
+            for p, j in zip(pvals, others)
+        ]
+    elif row_score is not None and have_data:
+        best_s = row_score(boot.y, boot.preds[boot.best])
+        pvals = [
+            max(p, mean_guard_p(best_s, row_score(boot.y, boot.preds[boot.names[j]]), margin))
             for p, j in zip(pvals, others)
         ]
     for j, rej in zip(others, holm(pvals, alpha)):

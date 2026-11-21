@@ -1,9 +1,10 @@
 import numpy as np
 import pytest
 
-from tiebreak.metrics import accuracy
+from tiebreak.metrics import accuracy, neg_mae, neg_mae_rows
 from tiebreak.stats import (
-    equivalent_set, extra_examples_needed, guard_p, holm, mcnemar_exact, paired_bootstrap, upper_loss,
+    equivalent_set, extra_examples_needed, guard_p, holm, mcnemar_exact, mean_guard_extra_examples, mean_guard_p,
+    paired_bootstrap, upper_loss,
 )
 
 
@@ -85,6 +86,53 @@ def test_guard_p_shrinks_with_more_data_and_flags_real_gaps():
     bad = y.copy()
     bad[:90] = 1
     assert guard_p(y, y, bad, 0.02) > 0.99
+
+
+def tile(n):
+    """n judge-style scores (1 to 5) in a repeating pattern."""
+    return np.tile(np.array([5.0, 4.0, 3.0, 4.0, 5.0]), n // 5)
+
+
+def test_mean_guard_does_not_tie_identical_scores_on_a_tiny_sample():
+    a = tile(5)
+    y = np.full(5, 5.0)
+    boot = paired_bootstrap(y, {"a": a, "b": a.copy()}, neg_mae, n_boot=300)
+    assert mean_guard_p(a, a.copy(), 0.25) > 0.05
+    assert equivalent_set(boot, 0.25, guard=False) == {"a": True, "b": True}  # the bootstrap alone cannot see the risk
+    assert equivalent_set(boot, 0.25, guard=False, row_score=neg_mae_rows) == {"a": True, "b": False}
+
+
+def test_mean_guard_ties_identical_scores_once_there_is_enough_data():
+    a = tile(60)
+    assert mean_guard_p(a, a.copy(), 0.25) <= 0.05
+    boot = paired_bootstrap(np.full(60, 5.0), {"a": a, "b": a.copy()}, neg_mae, n_boot=300)
+    assert equivalent_set(boot, 0.25, guard=False, row_score=neg_mae_rows) == {"a": True, "b": True}
+
+
+def test_mean_guard_p_shrinks_with_more_data_and_flags_real_gaps():
+    def p(n):
+        a = tile(n)
+        return mean_guard_p(a, a.copy(), 0.25)
+    assert p(5) > p(10) > p(25) > p(60)
+    a = tile(200)
+    assert mean_guard_p(a, a - 0.5, 0.25) > 0.99  # the candidate is 0.5 worse on every prompt, beyond the margin
+
+
+def test_mean_guard_extra_examples_is_none_zero_or_enough_to_pass():
+    a = tile(40)
+    assert mean_guard_extra_examples(a, a - 0.5, 0.25, 0.05) is None  # no slack: loss 0.5 exceeds the margin
+    assert mean_guard_extra_examples(a, a.copy(), 0.25, 0.05) == 0  # the guard already passes
+    small = tile(5)
+    need = mean_guard_extra_examples(small, small.copy(), 0.25, 0.05)
+    assert need >= 1
+    big = tile(5 * -(-(5 + need) // 5))  # the same pattern repeated until there are 5 + need prompts
+    assert mean_guard_p(big, big.copy(), 0.25) <= 0.06
+
+
+def test_mean_guard_leaves_constant_scores_to_the_existing_warning():
+    """A judge that scores everything 5 gives no variation to measure: the tie stays (the report warns about it)."""
+    a = np.full(10, 5.0)
+    assert mean_guard_p(a, a.copy(), 0.25) == 0.0
 
 
 def test_guard_false_reproduces_plain_bootstrap_p_values():

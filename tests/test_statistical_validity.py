@@ -254,12 +254,12 @@ JUDGE_MARGIN = 0.25
 JUDGE_SHIFT = 0.259  # latent shift for which the rounded, clipped 1-5 scores have a population mean gap of 0.25
 
 
-def _judge_scores(n: int, rng):
-    """Two judge-scored candidates with correlated, integer-valued scores (1 to 5); the first is better by
-    JUDGE_MARGIN points on average, so the second sits exactly on the tie boundary."""
+def _judge_scores(n: int, rng, shift: float = JUDGE_SHIFT):
+    """Two judge-scored candidates with correlated, integer-valued scores (1 to 5); by default the first is
+    better by JUDGE_MARGIN points on average, so the second sits exactly on the tie boundary."""
     q = rng.normal(0, 0.9, n)
     a = np.clip(np.round(3.3 + q + rng.normal(0, 0.8, n) * 0.5), 1, 5)
-    b = np.clip(np.round(3.3 - JUDGE_SHIFT + q + rng.normal(0, 0.8, n) * 0.5), 1, 5)
+    b = np.clip(np.round(3.3 - shift + q + rng.normal(0, 0.8, n) * 0.5), 1, 5)
     return a, b
 
 
@@ -270,10 +270,10 @@ def test_the_judge_score_gap_constant_matches_the_margin():
 
 @pytest.mark.parametrize("n", [20, 100])
 def test_false_tie_rate_for_judge_scores_at_the_margin_boundary_stays_small(n):
-    """Judge scores are compared through the regression path (neg_mae against the top of the scale) with no
-    discordance guard. At a true gap equal to the margin the bootstrap alone should falsely tie the worse
-    candidate at about the nominal 5%; docs/how-it-works.md quotes the measured rates."""
-    from tiebreak.metrics import neg_mae
+    """Judge scores are compared through the regression path (neg_mae against the top of the scale), guarded by
+    the t-test guard (mean_guard_p). At a true gap equal to the margin the worse candidate should be falsely tied
+    no more often than the nominal 5%; docs/how-it-works.md quotes the measured rates."""
+    from tiebreak.metrics import neg_mae, neg_mae_rows
 
     rng = np.random.default_rng(900 + n)
     reps, best_a, false_ties = 600, 0, 0
@@ -283,7 +283,24 @@ def test_false_tie_rate_for_judge_scores_at_the_margin_boundary_stays_small(n):
         boot = paired_bootstrap(y, {"A": a, "B": b}, neg_mae, n_boot=N_BOOT, seed=int(rng.integers(10**9)))
         if boot.best == "A":
             best_a += 1
-            false_ties += equivalent_set(boot, JUDGE_MARGIN, guard=False)["B"]
+            false_ties += equivalent_set(boot, JUDGE_MARGIN, guard=False, row_score=neg_mae_rows)["B"]
     rate = cond_rate(false_ties, best_a, reps)
-    RATES[f"false tie | judge scores (1-5), at boundary (gap = margin 0.25), bootstrap only, n={n}"] = rate
-    assert rate <= 0.09
+    RATES[f"false tie | judge scores (1-5), at boundary (gap = margin 0.25), bootstrap + t guard, n={n}"] = rate
+    assert rate <= 0.06
+
+
+def test_the_judge_guard_keeps_its_power_at_100_prompts():
+    """Two candidates with the same population mean score: with 100 prompts the guard must still tie them most of
+    the time (it is meant to bite on tiny samples, not here)."""
+    from tiebreak.metrics import neg_mae, neg_mae_rows
+
+    rng = np.random.default_rng(950)
+    reps, ties = 300, 0
+    y = np.full(100, 5.0)
+    for _ in range(reps):
+        a, b = _judge_scores(100, rng, shift=0.0)
+        boot = paired_bootstrap(y, {"A": a, "B": b}, neg_mae, n_boot=N_BOOT, seed=int(rng.integers(10**9)))
+        ties += all(equivalent_set(boot, JUDGE_MARGIN, guard=False, row_score=neg_mae_rows).values())
+    rate = ties / reps
+    RATES["tie found | judge scores (1-5), equal models, bootstrap + t guard, n=100"] = rate
+    assert rate >= 0.85

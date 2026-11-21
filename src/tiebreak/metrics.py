@@ -15,6 +15,7 @@ class Metric:
     name: str
     fn: Callable[[np.ndarray, np.ndarray], float]
     classification: bool
+    row_score: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None  # per-example score whose mean is `fn`
 
 
 def accuracy(y, p) -> float:
@@ -44,11 +45,15 @@ def neg_mae(y, p) -> float:
     return -float(np.mean(np.abs(y - p)))
 
 
+def neg_mae_rows(y, p) -> np.ndarray:
+    return -np.abs(y - p)
+
+
 METRICS = {
     "accuracy": Metric("accuracy", accuracy, True),
     "macro_f1": Metric("macro_f1", macro_f1, True),
     "neg_rmse": Metric("neg_rmse", neg_rmse, False),
-    "neg_mae": Metric("neg_mae", neg_mae, False),
+    "neg_mae": Metric("neg_mae", neg_mae, False, neg_mae_rows),
 }
 
 

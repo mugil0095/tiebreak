@@ -96,6 +96,17 @@ def test_guard_blocked_tie_reports_realistic_extra_examples():
     assert rec2.status == "recommended" and rec2.winner == "small"
 
 
+def test_judge_style_tie_from_a_tiny_sample_is_inconclusive_with_a_count():
+    from tiebreak.metrics import neg_mae, neg_mae_rows
+
+    a = np.array([5.0, 4.0, 3.0, 4.0, 5.0])  # 5 prompts scored 1 to 5, identical for both candidates
+    boot = paired_bootstrap(np.full(5, 5.0), {"big": a, "small": a.copy()}, neg_mae, n_boot=600)
+    equiv = equivalent_set(boot, 0.25, guard=False, row_score=neg_mae_rows)
+    rec = recommend(boot, equiv, {"big": 10.0, "small": 1.0}, 0.25, guard=False, row_score=neg_mae_rows)
+    assert rec.status == "inconclusive" and rec.winner == "big" and rec.inconclusive == ["small"]
+    assert rec.extra_examples["small"] >= 1 and f"approximately {rec.extra_examples['small']}" in rec.reason
+
+
 def test_extra_examples_beyond_100x_the_data_are_not_reported_as_a_count():
     y = np.array([0, 1, 2] * 100)
     small = y.copy()
