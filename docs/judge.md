@@ -36,7 +36,7 @@ tiebreak run --task task.yaml --models models.yaml --data prompts.csv --yes-send
 - A judge has biases (longer answers, its own style or output). Score 30 to 50 answers yourself and check the agreement before trusting small differences.
 - Jev's quality as a judge of open-ended answers has not been measured here; the human check is how you find out.
 - Each candidate answers each prompt once. If the judge fails on any answer, that candidate is left out of the comparison (and the recommendation is marked provisional) until you `--resume`.
-- The tie test for judge scores has no discordance guard (see Limitations).
+- The tie test for judge scores has a t-test guard, so a handful of identical scores is not enough to declare a tie (see how-it-works.md). If the judge gives every answer the same score there is nothing to measure: the tie says nothing about quality, and the report warns about it.
 
 ## Prices and history
 
