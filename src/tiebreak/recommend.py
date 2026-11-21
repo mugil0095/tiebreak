@@ -4,7 +4,8 @@ import math
 from dataclasses import dataclass, field
 
 from .stats import (
-    GUARD_MAX_MULT, BootstrapResult, discordance_counts, extra_examples_needed, guard_extra_examples, upper_loss,
+    GUARD_MAX_MULT, BootstrapResult, discordance_counts, extra_examples_needed, guard_extra_examples,
+    mean_guard_extra_examples, upper_loss,
 )
 
 
@@ -26,6 +27,7 @@ def recommend(
     margin: float,
     alpha: float = 0.05,
     guard: bool = True,
+    row_score=None,
 ) -> Recommendation:
     best = boot.best
     k = len(boot.names)
@@ -49,10 +51,16 @@ def recommend(
         if point_loss <= margin:
             inconclusive.append(m)
             need = extra_examples_needed(boot.n, point_loss, upper_loss(boot, m, q), margin)
-            if need is not None and guard and boot.y is not None and boot.preds is not None:
-                b, c, e = discordance_counts(boot.y, boot.preds[best], boot.preds[m])
-                g = guard_extra_examples(b, c, e, margin, level, seed=boot.seed)
-                need = None if g is None else max(need, g)
+            if need is not None and boot.y is not None and boot.preds is not None:
+                if guard:
+                    b, c, e = discordance_counts(boot.y, boot.preds[best], boot.preds[m])
+                    g = guard_extra_examples(b, c, e, margin, level, seed=boot.seed)
+                    need = None if g is None else max(need, g)
+                elif row_score is not None:
+                    g = mean_guard_extra_examples(
+                        row_score(boot.y, boot.preds[best]), row_score(boot.y, boot.preds[m]), margin, level
+                    )
+                    need = None if g is None else max(need, g)
             extra[m] = None if need is None else max(need, 1)
 
     if winner == best:

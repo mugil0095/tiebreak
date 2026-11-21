@@ -268,9 +268,9 @@ def _compare(task, scoring, metric, results, status, costs, incomplete, n_boot, 
     equiv: dict[str, bool] = {}
     if included:
         boot = paired_bootstrap(y_enc, enc, metric.fn, n_boot=n_boot, seed=task.seed)
-        equiv = equivalent_set(boot, task.margin, alpha=ALPHA, guard=metric.classification)
+        equiv = equivalent_set(boot, task.margin, alpha=ALPHA, guard=metric.classification, row_score=metric.row_score)
         rec = recommend(boot, equiv, {k: costs[k].total_at_volume if costs[k].price_known else None for k in included},
-                        task.margin, alpha=ALPHA, guard=metric.classification)
+                        task.margin, alpha=ALPHA, guard=metric.classification, row_score=metric.row_score)
     else:
         warnings.append("No candidate completed the evaluation; there is nothing to recommend.")
     left_out = [(k, notes.get(k, "excluded")) for k in results if status[k] == "excluded"]
